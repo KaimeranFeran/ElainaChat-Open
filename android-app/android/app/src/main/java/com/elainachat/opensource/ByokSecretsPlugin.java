@@ -30,7 +30,7 @@ public class ByokSecretsPlugin extends Plugin {
     private static final String KEY_ALIAS = "elainachat_open_byok_v1";
     private static final String PREFS_NAME = "elainachat_open_encrypted_secrets";
     private static final Set<String> ALLOWED_NAMES = Collections.unmodifiableSet(
-        new HashSet<>(Arrays.asList("apiKey", "minimaxApiKey", "dashscopeApiKey"))
+        new HashSet<>(Arrays.asList("apiKey", "minimaxApiKey", "dashscopeApiKey", "doubaoApiKey", "doubaoToken"))
     );
 
     private SharedPreferences preferences() {

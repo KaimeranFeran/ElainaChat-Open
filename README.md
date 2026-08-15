@@ -6,7 +6,7 @@
 
 ## 项目亮点
 
-- **设备直连，费用自理**：对话直连 DeepSeek 官方 API，也支持用户自己的 OpenAI 兼容地址；MiniMax TTS 直连用户账号。
+- **设备直连，费用自理**：对话支持 OpenAI 兼容、Anthropic、Gemini、Ollama 等多种 API 格式；语音输出支持 MiniMax、豆包 / 火山引擎与阿里千问 Qwen-TTS，全部直连用户账号。
 - **Key 有明确的存储边界**：Android 使用系统 Keystore 加密；Web 只使用当前标签页 `sessionStorage`，不把 API Key 写进 `localStorage`。
 - **Android 原生网络插件**：通过原生 HTTPS 请求绕过 WebView CORS 限制，同时禁止明文 HTTP，适合直接安装使用。
 - **稳定的角色上下文**：角色扮演协议、世界观、完整角色卡、会话设定、相关记忆、本轮锚点和最近对话分层发送，避免长上下文逐渐污染人格。
@@ -61,15 +61,15 @@
 ```mermaid
 flowchart LR
     UI[Web / Android UI] --> Prompt[分层角色提示词]
-    Prompt --> Chat[DeepSeek 或自定义兼容 API]
+    Prompt --> Chat[OpenAI 兼容 / Anthropic / Gemini / Ollama]
     Chat --> Reply[文字回复]
-    Reply --> TTS[MiniMax HTTP TTS]
+    Reply --> TTS[MiniMax / 豆包 / 千问 TTS]
     TTS --> Audio[语音气泡与本地缓存]
     Secrets[用户自己的 Key] -. Keystore / sessionStorage .-> Chat
     Secrets -.-> TTS
 ```
 
-默认对话模型是 `deepseek-chat`。开启思考开关时，DeepSeek 官方直连会切换到 `deepseek-reasoner`；自定义模式则按用户填写的模型名调用。MiniMax 音色 ID 默认留空，必须由使用者填写自己账号可用的音色。
+默认对话格式是 OpenAI 兼容，默认模型为 `deepseek-chat`。开启思考开关时，DeepSeek 官方直连会切换到 `deepseek-reasoner`；其他 API 格式则按用户填写的模型名调用。语音输出可在设置中切换 MiniMax、豆包（新控制台 API Key 或旧控制台 App ID + Token）和阿里千问 Qwen-TTS；MiniMax 音色 ID 默认留空，必须由使用者填写自己账号可用的音色，豆包与千问可使用系统音色。
 
 ## 与正式版的边界
 
@@ -82,9 +82,9 @@ cd E:\ElainaChat\open-source
 npm run serve:web
 ```
 
-然后访问 `http://127.0.0.1:4173`，首次打开时填写 DeepSeek API Key。MiniMax Key、模型和音色 ID 可在设置中随后填写。
+然后访问 `http://127.0.0.1:4173`，首次打开时填写所选 API 格式的 Key。语音 Key、模型和音色可在设置中随后填写。
 
-Web 版没有任何中转服务。如果服务商拒绝浏览器跨域请求，可以使用 Android 版，或在“自定义 OpenAI 兼容地址”中填写自己部署并信任的 HTTPS 服务。
+Web 版没有任何中转服务。如果服务商拒绝浏览器跨域请求，可以使用 Android 版，或在“自定义 Base URL”中填写自己部署并信任的 HTTPS 服务。
 
 ## Android 端
 
@@ -116,7 +116,7 @@ open-source/
 └─ LICENSE
 ```
 
-Android 测试覆盖角色上下文结构、记忆预算、TTS 竞态去重、直连请求和 Key 不落 `localStorage`。
+Android 测试覆盖角色上下文结构、记忆预算、TTS 竞态去重、多供应商 TTS 适配、直连请求和 Key 不落 `localStorage`。
 
 ## 安全边界与费用
 
