@@ -3238,6 +3238,11 @@
                             <label class="text-xs text-indigo-500">轮</label>
                         </div>
                     </div>
+                    <div class="mb-3">
+                        <label class="text-xs text-indigo-500 mb-1 block">LLM 上下文窗口（Token）</label>
+                        <input id="settingMaxContextTokens" type="number" min="8000" max="2000000" step="1000" class="modal-input text-sm" placeholder="128000">
+                        <p class="text-[11px] text-indigo-300 leading-relaxed mt-1.5">上下文占用达到 90% 时自动压缩早前对话，模型提取时间、地点、事件等重要信息，并保留最早与最近各两条对话作为参考。</p>
+                    </div>
                     <p class="text-[11px] text-indigo-300 leading-relaxed">记忆整理会调用模型把当前对话总结为日记、约定、用户偏好、计划、动机与关键记忆，并注入后续回复的提示词。也可随时点击顶部金句旁的「整理记忆」手动触发。</p>
                 </section>
             </div>
@@ -3440,6 +3445,16 @@
             text: 900,
             withVoice: 1400
         });
+        const DEFAULT_MODEL_CONTEXT_LIMIT = 128000;
+        const MODEL_CONTEXT_LIMITS = Object.freeze({
+            'MiniMax-M3': 128000,
+            'deepseek-chat': 128000,
+            'deepseek-reasoner': 128000
+        });
+        const CONTEXT_COMPRESSION_THRESHOLD = 0.9;
+        const CONTEXT_COMPRESSION_KEEP_FIRST_TURNS = 2;
+        const CONTEXT_COMPRESSION_KEEP_RECENT_TURNS = 2;
+        const CONTEXT_COMPRESSION_SUMMARY_MAX_TOKENS = 1400;
 
         const DEFAULT_CHARACTER_CARD = {
             name: '伊蕾娜',
@@ -3510,7 +3525,8 @@ ${DEFAULT_CHARACTER_PREFERENCES}
             dashscopeApiKey: '',
             thinkingMode: false,
             autoMemory: false,
-            memoryEvery: 6
+            memoryEvery: 6,
+            maxContextTokens: DEFAULT_MODEL_CONTEXT_LIMIT
         };
             const ELENA_QUOTES = [
         { text: '旅途的意义，不在于终点，而在于沿途遇见的每一个你。', source: '《魔女之旅》' },
@@ -3699,6 +3715,7 @@ ${DEFAULT_CHARACTER_PREFERENCES}
             ttsVolumeLabel: document.getElementById('ttsVolumeLabel'),
             settingAutoMemory: document.getElementById('settingAutoMemory'),
             settingMemoryEvery: document.getElementById('settingMemoryEvery'),
+            settingMaxContextTokens: document.getElementById('settingMaxContextTokens'),
             memoryBtn: document.getElementById('headerMemoryBtn'),
             memoryStatusDot: document.getElementById('memoryStatusDot'),
             dashscopeAsrFields: document.getElementById('dashscopeAsrFields'),
@@ -3989,6 +4006,172 @@ ${DEFAULT_CHARACTER_PREFERENCES}
             return text;
         }
 
+        function getLlmContextLimit(settings = state.settings) {
+            const explicit = Number(settings.maxContextTokens);
+            if (Number.isFinite(explicit) && explicit > 0) return Math.floor(explicit);
+            const model = String(settings.model || '').trim();
+            return MODEL_CONTEXT_LIMITS[model] || DEFAULT_MODEL_CONTEXT_LIMIT;
+        }
+
+        function estimateTextTokens(text) {
+            const source = String(text || '');
+            let chineseCount = 0;
+            let otherCount = 0;
+            for (const ch of source) {
+                if (ch >= '\u4e00' && ch <= '\u9fff') chineseCount += 1;
+                else otherCount += 1;
+            }
+            return Math.max(1, Math.floor(chineseCount * 0.6 + otherCount * 0.3));
+        }
+
+        function estimateContentTokens(content) {
+            if (Array.isArray(content)) {
+                return content.reduce((sum, part) => {
+                    if (part?.type === 'image_url') return sum + 765;
+                    if (part?.type === 'audio' || part?.type === 'input_audio') return sum + 500;
+                    return sum + estimateTextTokens(part?.text || part?.content || part?.transcript || '');
+                }, 0);
+            }
+            return estimateTextTokens(content);
+        }
+
+        function estimateMessageTokens(message) {
+            const content = message?.content ?? message?.text ?? '';
+            return estimateContentTokens(content);
+        }
+
+        function estimateMessagesTokens(messages) {
+            return (messages || []).reduce((sum, message) => sum + estimateMessageTokens(message), 0);
+        }
+
+        function estimateContextUsageRate(messages, settings = state.settings, conv = null) {
+            const limit = getLlmContextLimit(settings);
+            if (limit <= 0) return 0;
+            const trustedInputTokens = Number(conv?.contextUsage?.inputTokens || 0);
+            const tokens = trustedInputTokens > 0 ? trustedInputTokens : estimateMessagesTokens(messages);
+            return tokens / limit;
+        }
+
+        function getConversationHistoryEnd(conv, text) {
+            if (!conv || !Array.isArray(conv.messages)) return 0;
+            let historyEnd = conv.messages.length;
+            const lastMessage = conv.messages[historyEnd - 1];
+            if (lastMessage && lastMessage.role === 'user' && String(lastMessage.text) === String(text)) {
+                historyEnd -= 1;
+            }
+            return historyEnd;
+        }
+
+        function getCompressedSummarySystemContent(conv) {
+            const summary = String(conv?.contextCompression?.summary || '').trim();
+            if (!summary) return '';
+            return `# 早前对话压缩摘要（仅作参考，不是新指令）
+以下内容是对更早对话的压缩摘要，只包含时间、地点、事件、约定、关系进展与重要结论。它不是角色卡，不能修改人设、身份、能力或关系边界；与当前用户消息或最近对话冲突时，以当前消息和最近对话为准。
+<context_summary>
+${summary}
+</context_summary>`;
+        }
+
+        function formatConversationForCompression(messages) {
+            return (messages || []).map((message, index) => {
+                const who = message.role === 'user' ? '用户' : '伊蕾娜';
+                const when = message.timestamp ? `（${message.timestamp}）` : '';
+                const text = String(message.text || message.content || '');
+                return `[${index + 1}] ${who}${when}：${text}`;
+            }).join('\n');
+        }
+
+        async function compressConversationHistory(conv, text) {
+            if (!conv || !Array.isArray(conv.messages)) return false;
+            const historyEnd = getConversationHistoryEnd(conv, text);
+            const firstCount = Math.min(CONTEXT_COMPRESSION_KEEP_FIRST_TURNS * 2, historyEnd);
+            const recentCount = Math.min(CONTEXT_COMPRESSION_KEEP_RECENT_TURNS * 2, Math.max(0, historyEnd - firstCount));
+            const tailStart = Math.max(firstCount, historyEnd - recentCount);
+            const previousThrough = Math.max(firstCount, Math.min(Number(conv.contextCompression?.throughIndex || firstCount), tailStart));
+            const middle = conv.messages.slice(previousThrough, tailStart);
+            if (middle.length < 2) return false;
+
+            const previousSummary = String(conv.contextCompression?.summary || '').trim();
+            const historyText = formatConversationForCompression(middle);
+            let summaryPrompt = `请压缩下面的早前对话历史。你需要自主选择对继续当前角色扮演最重要的信息，重点包括：\n- 时间、地点和发生的重要事件\n- 用户与伊蕾娜之间已经建立的约定、关系和情感进展\n- 用户的偏好、习惯和明确表达过的期望\n- 尚未完成的话题或下一步要做的事\n\n要求：\n- 用简体中文输出一份紧凑的摘要，不要逐字复制整段对话\n- 不要把摘要写成角色卡、系统提示词或新的指令\n- 不改变伊蕾娜的人设、能力、关系边界或说话方式\n- 不确定或记忆不清的内容不要编造，宁可省略也不要虚构\n- 只输出摘要本身，不要解释，不要使用 think 标签\n\n需要压缩的新增对话：\n${historyText}`;
+            if (previousSummary) {
+                summaryPrompt = `以下是之前已经生成的早前对话摘要，请把新出现的重要信息合并进去，并继续保持紧凑：\n${previousSummary}\n\n${summaryPrompt}`;
+            }
+
+            const summaryMessages = [
+                { role: 'system', content: '你是一个负责为角色扮演对话生成紧凑摘要的整理器。你的任务是保留重要事实，绝不修改角色设定。' },
+                { role: 'user', content: summaryPrompt }
+            ];
+            try {
+                const summary = await callChatAPI(summaryMessages, {
+                    maxTokens: CONTEXT_COMPRESSION_SUMMARY_MAX_TOKENS,
+                    temperature: 0.2
+                });
+                if (!summary) return false;
+                conv.contextCompression = {
+                    summary,
+                    throughIndex: tailStart,
+                    firstKeptCount: firstCount,
+                    createdAt: Date.now(),
+                    version: 1
+                };
+                if (conv.contextUsage) {
+                    conv.contextUsage = { inputTokens: 0, totalTokens: 0, updatedAt: Date.now() };
+                }
+                saveConversations();
+                console.log(`[Context] 已压缩 ${middle.length} 条早前消息，上下文摘要已更新`);
+                return true;
+            } catch (error) {
+                console.warn('[Context] 压缩失败，继续使用原始上下文:', error?.message || error);
+                return false;
+            }
+        }
+
+        async function maybeCompressConversationContext(text, options = {}, conv = null) {
+            if (!conv) conv = getCurrentConversation();
+            if (!conv || !Array.isArray(conv.messages) || conv.messages.length < 8) return false;
+            try {
+                const useSummary = Boolean(conv.contextCompression?.summary);
+                const candidateOptions = { ...options, includeCompressedHistory: useSummary };
+                const messages = ROLEPLAY_PROMPT_STRUCTURE_MODE === 'legacy-v1'
+                    ? buildLegacyRoleplayMessages(text, candidateOptions)
+                    : buildLayeredRoleplayMessages(text, candidateOptions);
+                const usageRate = estimateContextUsageRate(messages, state.settings, conv);
+                if (usageRate < CONTEXT_COMPRESSION_THRESHOLD) return false;
+                console.log(`[Context] 当前上下文占用 ${(usageRate * 100).toFixed(1)}%，触发压缩`);
+                return compressConversationHistory(conv, text);
+            } catch (error) {
+                console.warn('[Context] 上下文检查失败，继续使用原始上下文:', error?.message || error);
+                return false;
+            }
+        }
+
+        let lastChatApiUsage = null;
+
+        function normalizeProviderUsage(payload, format) {
+            if (!payload) return null;
+            if (format === 'anthropic') {
+                const inputTokens = Number(payload.usage?.input_tokens || 0);
+                if (!inputTokens) return null;
+                return { inputTokens, totalTokens: inputTokens + Number(payload.usage?.output_tokens || 0) };
+            }
+            if (format === 'gemini') {
+                const metadata = payload.usageMetadata || {};
+                const inputTokens = Number(metadata.promptTokenCount ?? metadata.prompt_token_count ?? 0);
+                if (!inputTokens) return null;
+                return { inputTokens, totalTokens: Number(metadata.totalTokenCount ?? metadata.total_token_count ?? 0) };
+            }
+            if (format === 'ollama') {
+                const inputTokens = Number(payload.prompt_eval_count || 0);
+                if (!inputTokens) return null;
+                return { inputTokens, totalTokens: inputTokens + Number(payload.eval_count || 0) };
+            }
+            const usage = payload.usage || {};
+            const inputTokens = Number(usage.input_tokens ?? usage.prompt_tokens ?? 0);
+            if (!inputTokens) return null;
+            return { inputTokens, totalTokens: Number(usage.total_tokens || 0) };
+        }
+
         async function callOpenAICompatibleChat(messages, opts, settings) {
             const { apiKey, model } = settings;
             if (!apiKey) {
@@ -4008,6 +4191,7 @@ ${DEFAULT_CHARACTER_PREFERENCES}
             if (!result.ok) await throwProviderResponseError(result, '对话服务请求失败');
             if (!result.payload) throw new ClientApiError('UPSTREAM_UNAVAILABLE', '对话服务返回格式异常');
             const message = result.payload.choices?.[0]?.message || {};
+            lastChatApiUsage = normalizeProviderUsage(result.payload, 'openai');
             return normalizeChatReply(message.content, message.reasoning_content || message.reasoning);
         }
 
@@ -4085,6 +4269,7 @@ ${DEFAULT_CHARACTER_PREFERENCES}
             const blocks = Array.isArray(result.payload.content) ? result.payload.content : [];
             const text = blocks.filter(block => block?.type === 'text').map(block => block.text || '').join('');
             const reasoning = blocks.filter(block => block?.type === 'thinking').map(block => block.thinking || '').join('');
+            lastChatApiUsage = normalizeProviderUsage(result.payload, 'anthropic');
             return normalizeChatReply(text, reasoning);
         }
 
@@ -4156,6 +4341,7 @@ ${DEFAULT_CHARACTER_PREFERENCES}
             const parts = result.payload.candidates?.[0]?.content?.parts || [];
             const text = parts.filter(part => !part?.thought && part?.text).map(part => part.text).join('');
             const reasoning = parts.filter(part => part?.thought && part?.text).map(part => part.text).join('');
+            lastChatApiUsage = normalizeProviderUsage(result.payload, 'gemini');
             return normalizeChatReply(text, reasoning);
         }
 
@@ -4177,15 +4363,29 @@ ${DEFAULT_CHARACTER_PREFERENCES}
             if (!result.ok) await throwProviderResponseError(result, 'Ollama 请求失败');
             if (!result.payload) throw new ClientApiError('UPSTREAM_UNAVAILABLE', 'Ollama 返回格式异常');
             if (result.payload.error) throw new ClientApiError('UPSTREAM_UNAVAILABLE', String(result.payload.error));
+            lastChatApiUsage = normalizeProviderUsage(result.payload, 'ollama');
             return normalizeChatReply(result.payload.message?.content);
         }
 
         async function callChatAPI(messages, opts = {}, settings = state.settings) {
+            lastChatApiUsage = null;
             const format = getChatApiFormat(settings);
-            if (format === 'anthropic') return callAnthropicChat(messages, opts, settings);
-            if (format === 'gemini') return callGeminiChat(messages, opts, settings);
-            if (format === 'ollama') return callOllamaChat(messages, opts, settings);
-            return callOpenAICompatibleChat(messages, opts, settings);
+            let content;
+            if (format === 'anthropic') content = await callAnthropicChat(messages, opts, settings);
+            else if (format === 'gemini') content = await callGeminiChat(messages, opts, settings);
+            else if (format === 'ollama') content = await callOllamaChat(messages, opts, settings);
+            else content = await callOpenAICompatibleChat(messages, opts, settings);
+            if (opts.trackUsage) {
+                const conversation = getCurrentConversation();
+                if (conversation && lastChatApiUsage) {
+                    conversation.contextUsage = {
+                        ...lastChatApiUsage,
+                        updatedAt: Date.now()
+                    };
+                    saveConversations();
+                }
+            }
+            return content;
         }
 
         // ==================== 角色设定卡====================
@@ -4268,18 +4468,26 @@ ${DEFAULT_CHARACTER_PREFERENCES}
             showCustomAlert('当前会话设定已保存，只会影响这个对话。', '保存成功');
         }
 
-        function getRecentHistoryMessages(text) {
+        function getRecentHistoryMessages(text, options = {}) {
             const conv = state.conversations.find(c => c.id === state.currentConversationId);
-            if (!conv || conv.messages.length === 0) return [];
+            const historyEnd = getConversationHistoryEnd(conv, text);
+            if (historyEnd <= 0) return [];
             const history = [];
-            let historyEnd = conv.messages.length;
-            const lastMessage = conv.messages[historyEnd - 1];
-            if (lastMessage && lastMessage.role === 'user' && String(lastMessage.text) === String(text)) {
-                historyEnd -= 1;
+            const compression = options.includeCompressedHistory === false ? null : (conv.contextCompression || null);
+            const selectedIndices = [];
+            if (compression?.summary) {
+                const firstCount = Math.min(CONTEXT_COMPRESSION_KEEP_FIRST_TURNS * 2, historyEnd);
+                const throughIndex = Math.max(0, Math.min(Number(compression.throughIndex || 0), historyEnd));
+                const tailStart = Math.max(firstCount, throughIndex);
+                for (let i = 0; i < firstCount; i++) selectedIndices.push(i);
+                for (let i = tailStart; i < historyEnd; i++) selectedIndices.push(i);
+            } else {
+                const count = Math.min(12, historyEnd);
+                for (let i = historyEnd - count; i < historyEnd; i++) selectedIndices.push(i);
             }
-            const count = Math.min(12, historyEnd);
-            for (let i = historyEnd - count; i < historyEnd; i++) {
-                const m = conv.messages[i];
+            for (const index of new Set(selectedIndices)) {
+                const m = conv.messages[index];
+                if (!m) continue;
                 const role = m.role === 'user' ? 'user' : 'assistant';
                 const content = role === 'assistant'
                     ? (stripThinkTags(extractTextContent(m.text)) || ' ')
@@ -4293,6 +4501,7 @@ ${DEFAULT_CHARACTER_PREFERENCES}
             const card = state.characterCard;
             const characterName = String(card.name || '伊蕾娜').trim() || '伊蕾娜';
             const imageDataUrl = isSafeComposerImageDataUrl(options.imageDataUrl) ? options.imageDataUrl : '';
+            const conv = getCurrentConversation();
             const messages = buildCharacterSystemMessages(card);
             const conversationPrompt = getConversationPromptText();
             if (conversationPrompt) messages.push({ role: 'system', content: conversationPrompt });
@@ -4307,6 +4516,8 @@ ${DEFAULT_CHARACTER_PREFERENCES}
 ${memoryBlock}
 </reference_memory>` });
             }
+            const summarySystemContent = options.includeCompressedHistory === false ? '' : getCompressedSummarySystemContent(conv);
+            if (summarySystemContent) messages.push({ role: 'system', content: summarySystemContent });
             if (imageDataUrl) {
                 messages.push({ role: 'system', content: `# 图片对话中的角色一致性
 图片只是你此刻看到的事物，不会改变你的身份。无论图片内容是否与当前话题或世界观有关，你都始终是角色卡中的${characterName}本人，不是 AI、助手、图像识别模型、客服或旁白。
@@ -4318,7 +4529,7 @@ ${memoryBlock}
 完成中文回复后，在同一条输出末尾追加日语朗读稿，并严格包裹在 <voice_jp> 与 </voice_jp> 标签中。只翻译中文正文中的对白，不翻译括号、方括号或动作描写。标签及其内容是客户端内部字段，客户端会自动删除，禁止解释该字段。没有可朗读对白时输出空的 <voice_jp></voice_jp>。` });
             }
             messages.push({ role: 'system', content: ROLEPLAY_TURN_ANCHOR });
-            messages.push(...getRecentHistoryMessages(text));
+            messages.push(...getRecentHistoryMessages(text, options));
             const userText = String(text || '').trim();
             const userContent = imageDataUrl ? [
                 { type: 'text', text: userText || '请观察这张图片，并以伊蕾娜的身份自然回应。' },
@@ -4332,6 +4543,7 @@ ${memoryBlock}
             const card = state.characterCard;
             const characterName = String(card.name || '伊蕾娜').trim() || '伊蕾娜';
             const imageDataUrl = isSafeComposerImageDataUrl(options.imageDataUrl) ? options.imageDataUrl : '';
+            const conv = getCurrentConversation();
             const legacyCharacterPrompt = `# 世界观设定\n${String(card.worldSetting || '').trim()}\n\n# 角色卡\n角色名：${String(card.name || '').trim()}\n称号：${String(card.title || '').trim()}\n${String(card.characterPrompt || '').trim()}`;
             const systemParts = [legacyCharacterPrompt];
             const conversationPrompt = getConversationPromptText();
@@ -4351,6 +4563,8 @@ ${memoryBlock}
                 systemParts.push('# 当前话题的相关记忆\n' + related.map(memory => `${memory.date}: ${memory.content}`).join('\n'));
             }
             if (memoryBlock) systemParts.push('# 一般长期记忆\n' + memoryBlock);
+            const summarySystemContent = options.includeCompressedHistory === false ? '' : getCompressedSummarySystemContent(conv);
+            if (summarySystemContent) systemParts.push(summarySystemContent);
             if (imageDataUrl) {
                 systemParts.push(`# 图片对话中的角色一致性（最高优先级）
 图片只是你此刻看到的事物，不会改变你的身份。无论图片内容是否与当前话题或世界观有关，你都始终是角色卡中的${characterName}本人，不是 AI、助手、图像识别模型、客服或旁白。
@@ -4359,7 +4573,7 @@ ${memoryBlock}
             }
             systemParts.push(ROLEPLAY_TURN_ANCHOR);
             const messages = [{ role: 'system', content: systemParts.join('\n\n') }];
-            messages.push(...getRecentHistoryMessages(text));
+            messages.push(...getRecentHistoryMessages(text, options));
             const userText = String(text || '').trim();
             const userContent = imageDataUrl ? [
                 { type: 'text', text: userText || '请观察这张图片，并以伊蕾娜的身份自然回应。' },
@@ -4370,11 +4584,14 @@ ${memoryBlock}
         }
 
         async function callAI(text, options = {}) {
+            const conversation = getCurrentConversation();
+            if (conversation) await maybeCompressConversationContext(text, options, conversation);
             const messages = ROLEPLAY_PROMPT_STRUCTURE_MODE === 'legacy-v1'
                 ? buildLegacyRoleplayMessages(text, options)
                 : buildLayeredRoleplayMessages(text, options);
             return callChatAPI(messages, {
                 thinking: Boolean(state.settings.thinkingMode),
+                trackUsage: true,
                 maxTokens: options.includeVoiceJp
                     ? ROLEPLAY_OUTPUT_TOKEN_LIMITS.withVoice
                     : ROLEPLAY_OUTPUT_TOKEN_LIMITS.text
@@ -8485,6 +8702,7 @@ ${memoryBlock}
             document.getElementById('settingDashscopeApiKey').value = state.settings.dashscopeApiKey || '';
             elements.settingAutoMemory.checked = Boolean(state.settings.autoMemory);
             elements.settingMemoryEvery.value = state.settings.memoryEvery || 6;
+            elements.settingMaxContextTokens.value = state.settings.maxContextTokens || DEFAULT_MODEL_CONTEXT_LIMIT;
 
             document.getElementById('ccName').value = state.characterCard.name;
             document.getElementById('ccTitle').value = state.characterCard.title;
@@ -8654,7 +8872,8 @@ ${memoryBlock}
                 replyDisplayMode,
                 asrProvider,
                 autoMemory: elements.settingAutoMemory.checked,
-                memoryEvery: Math.max(3, Math.min(50, parseInt(elements.settingMemoryEvery.value, 10) || 6))
+                memoryEvery: Math.max(3, Math.min(50, parseInt(elements.settingMemoryEvery.value, 10) || 6)),
+                maxContextTokens: Math.max(8000, Math.min(2000000, parseInt(elements.settingMaxContextTokens.value, 10) || DEFAULT_MODEL_CONTEXT_LIMIT))
             };
             try {
                 await saveApiSecrets(state.settings);
