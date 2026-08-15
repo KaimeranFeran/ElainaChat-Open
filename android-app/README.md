@@ -32,8 +32,8 @@ Debug APK 输出位置：
 ## 使用方式
 
 1. 打开 APK 的设置页。
-2. 填写自己的 DeepSeek Key；如需语音，再填写自己的 MiniMax Key 与音色 ID。
-3. 默认直连 DeepSeek 官方 API，也可以填写用户自己的 OpenAI 兼容 HTTPS 地址。
+2. 选择 API 格式（OpenAI 兼容、Anthropic、Gemini 或 Ollama）并填写自己的 Key；如需语音，可切换 MiniMax、豆包或阿里千问 Qwen-TTS 并填写对应凭据与音色。
+3. 默认使用所选格式的官方地址，也可以填写用户自己的自定义 Base URL。
 4. 如需 Android 语音输入，可选择阿里百炼并填写自己的 DashScope Key。
 
 正式发布前还需要配置自己的 release 签名 keystore 与隐私说明。仓库生成的 debug APK 只用于测试安装。
