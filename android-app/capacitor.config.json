@@ -1,0 +1,11 @@
+{
+  "appId": "com.elainachat.opensource",
+  "appName": "ElainaChat Open",
+  "webDir": "www",
+  "server": {
+    "androidScheme": "https"
+  },
+  "android": {
+    "allowMixedContent": false
+  }
+}

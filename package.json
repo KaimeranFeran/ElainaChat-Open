@@ -1,0 +1,11 @@
+{
+  "name": "elainachat-open",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "sync:web": "node scripts/sync-web.mjs",
+    "serve:web": "node web/serve.mjs",
+    "test": "npm run sync:web && npm --prefix android-app test",
+    "build:apk": "npm run sync:web && npm --prefix android-app run build:debug"
+  }
+}

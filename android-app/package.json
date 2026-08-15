@@ -1,0 +1,21 @@
+{
+  "name": "elainachat-open-android",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "test": "node --test --test-concurrency=1 test/voice-race.test.mjs test/context-structure.test.mjs test/byok-provider.test.mjs",
+    "sync": "npx cap sync android",
+    "open:android": "npx cap open android",
+    "build:debug": "npm run sync && cd android && gradlew.bat assembleDebug",
+    "test:voice-race": "node --test --test-concurrency=1 test/voice-race.test.mjs",
+    "test:context-structure": "node --test --test-concurrency=1 test/context-structure.test.mjs"
+  },
+  "dependencies": {
+    "@capacitor/android": "^7.4.3",
+    "@capacitor/core": "^7.4.3"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^7.4.3",
+    "playwright-core": "^1.62.1"
+  }
+}
