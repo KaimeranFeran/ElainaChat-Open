@@ -3371,6 +3371,19 @@
     </div>
 
     <script>
+        // 兼容旧 WebView（Chromium < 86 无 Element.replaceChildren，会导致发送流程
+        // 在 consumePendingComposerImage -> renderPendingComposerImage 处抛 TypeError，
+        // 请求根本发不出去）。仅在缺失时注入，不影响新设备行为。
+        if (window.Element && !Element.prototype.replaceChildren) {
+            Element.prototype.replaceChildren = function () {
+                while (this.firstChild) this.removeChild(this.firstChild);
+                for (var i = 0; i < arguments.length; i++) {
+                    var arg = arguments[i];
+                    this.appendChild(arg instanceof Node ? arg : document.createTextNode(String(arg)));
+                }
+            };
+        }
+
         const BYOK_CLIENT = true;
         const DEEPSEEK_DIRECT_BASE_URL = 'https://api.deepseek.com/v1';
         const CHAT_API_FORMATS = Object.freeze({
