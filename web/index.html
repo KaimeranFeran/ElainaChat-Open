@@ -289,7 +289,10 @@
 
         .pulse-ring {
             position: absolute;
-            inset: -14px;
+            top: -14px;
+            right: -14px;
+            bottom: -14px;
+            left: -14px;
             border-radius: 9999px;
             border: 1.5px solid rgba(244, 114, 182, 0.28);
             animation: pulse-glow 1.8s ease-out infinite;
@@ -453,12 +456,19 @@
         .conversation-context-menu button.danger { color: #a65347; }
         .conversation-context-menu svg { width: 16px; height: 16px; flex: 0 0 16px; }
 
+        /* 兼容旧 WebView（Chromium < 87 不支持 inset 简写，会导致浮层定位失效）：
+           用长属性兜底所有 fixed inset-0 浮层，新 WebView 上效果与 inset: 0 相同。 */
+        .fixed.inset-0 { top: 0; right: 0; bottom: 0; left: 0; }
+
         #customModal { z-index: 1000 !important; }
         #customModal:not(.hidden),
         #conversationMoveOverlay:not(.hidden) { display: flex !important; }
         #conversationMoveOverlay {
             position: fixed;
-            inset: 0;
+            top: 0;
+            right: 0;
+            bottom: 0;
+            left: 0;
             z-index: 1000;
             padding: 16px;
             align-items: center;
@@ -1267,7 +1277,9 @@
         #sidebar::before {
             content: "";
             position: absolute;
-            inset: 0 auto 0 0;
+            top: 0;
+            bottom: 0;
+            left: 0;
             width: 108px;
             background: var(--pixso-brown);
             z-index: 0;
@@ -1287,7 +1299,9 @@
         }
         .sidebar-rail {
             position: absolute !important;
-            inset: 0 auto 0 0;
+            top: 0;
+            bottom: 0;
+            left: 0;
             z-index: 3 !important;
             box-sizing: border-box;
             width: 108px !important;
@@ -1590,7 +1604,7 @@
         .conversation-prompt-meta { display: flex; justify-content: space-between; gap: 12px; color: #9b8579; font-size: 11px; margin-top: 8px; }
         #conversationPromptCount.is-over { color: #b8624c; font-weight: 700; }
         @media (max-width: 640px) {
-            .guide-modal-panel { width: 100%; max-height: calc(100dvh - 28px); }
+            .guide-modal-panel { width: 100%; max-height: calc(100vh - 28px); max-height: calc(100dvh - 28px); }
             .guide-modal-scroll { padding: 20px 18px 16px; }
             .guide-title { font-size: 18px; }
             .conversation-prompt-grid textarea { min-height: 96px; }
@@ -2290,7 +2304,9 @@
             #appShell { position: fixed; top: var(--viewport-offset-top); left: 0; width: 100%; max-width: 100%; height: var(--app-height); min-height: 0; margin: 0; border-radius: 0; box-shadow: none; overflow: hidden; }
             #sidebar {
                 position: fixed;
-                inset: calc(8px + var(--safe-top)) auto calc(8px + var(--safe-bottom)) calc(8px + var(--safe-left));
+                top: calc(8px + var(--safe-top));
+                bottom: calc(8px + var(--safe-bottom));
+                left: calc(8px + var(--safe-left));
                 width: min(390px, calc(100vw - 16px - var(--safe-left) - var(--safe-right)));
                 height: auto;
                 flex: 0 0 min(390px, calc(100vw - 16px - var(--safe-left) - var(--safe-right)));
@@ -2525,7 +2541,8 @@
                 width: 100%;
                 height: var(--app-height);
                 min-height: 0;
-                inset: 0 auto auto 0;
+                top: 0;
+                left: 0;
                 align-items: stretch !important;
                 justify-content: stretch !important;
                 background: var(--chat-liquid-background) !important;
