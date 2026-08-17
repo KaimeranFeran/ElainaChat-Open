@@ -3757,6 +3757,9 @@ ${DEFAULT_CHARACTER_PREFERENCES}
         let asrReady = false;
         let asrEnding = false;
         let asrSubmitting = false;
+        let asrStarting = false;
+        let asrRecognitionActive = false;
+        let asrSessionId = 0;
         let asrMediaStream = null;
         let asrAudioContext = null;
         let asrSourceNode = null;
@@ -6800,6 +6803,7 @@ ${memoryBlock}
 
             browserRecognition.onerror = (event) => {
                 console.error('Speech recognition error:', event.error);
+                asrRecognitionActive = false;
                 clearVoiceTimers();
                 if (asrEnding || asrSubmitting) return;
                 if (isBrowserSpeechPermissionError(event.error) && canUseCloudFinalAsr() && asrMediaStream) {
@@ -6818,15 +6822,20 @@ ${memoryBlock}
             };
 
             browserRecognition.onend = () => {
+                asrRecognitionActive = false;
                 if (asrEnding || asrSubmitting) return;
                 if (silenceTimer) {
                     clearTimeout(silenceTimer);
                     silenceTimer = null;
                 }
+                const endedSessionId = asrSessionId;
                 if ((asrMode === 'browser' || asrMode === 'browser-session' || asrMode === 'browser-cloud-final') && (state.voiceState === 'listening' || state.voiceState === 'paused')) {
                     setTimeout(() => {
-                        if ((asrMode === 'browser' || asrMode === 'browser-session' || asrMode === 'browser-cloud-final') && (state.voiceState === 'listening' || state.voiceState === 'paused')) {
-                            try { browserRecognition.start(); } catch (e) {
+                        if (endedSessionId === asrSessionId && !asrStarting && (asrMode === 'browser' || asrMode === 'browser-session' || asrMode === 'browser-cloud-final') && (state.voiceState === 'listening' || state.voiceState === 'paused')) {
+                            try {
+                                browserRecognition.start();
+                                asrRecognitionActive = true;
+                            } catch (e) {
                                 console.warn('[Voice] 浏览器识别重启失败', e);
                                 if (state.voiceState === 'listening') {
                                     state.voiceState = 'paused';
@@ -7119,8 +7128,17 @@ ${memoryBlock}
             asrMode = 'browser-session';
             asrReady = true;
             if (browserRecognition) {
+                // 清理可能仍在运行的旧识别会话，避免 start() 抛
+                // "Failed to execute 'start' ... recognition has already started"
+                if (asrRecognitionActive) {
+                    try { browserRecognition.abort(); } catch (e) { /* 已停止则忽略 */ }
+                    try { browserRecognition.stop(); } catch (e) { /* 已停止则忽略 */ }
+                    await new Promise(resolve => setTimeout(resolve, 150));
+                    asrRecognitionActive = false;
+                }
                 try {
                     browserRecognition.start();
+                    asrRecognitionActive = true;
                 } catch (error) {
                     if (canUseCloudFinalAsr() && isBrowserSpeechPermissionError(error)) {
                         asrMode = 'cloud-final-only';
@@ -7182,14 +7200,17 @@ ${memoryBlock}
         }
 
         async function startListening() {
-            if (asrSubmitting) {
-                console.log('[ASR] 忽略提交中的 startListening 调用');
+            if (asrSubmitting || asrStarting) {
+                console.log('[ASR] 忽略重复 startListening 调用');
                 return;
             }
+            asrStarting = true;
+            asrSessionId++;
             clearVoiceTimers();
             currentTranscript = '';
 
             if (!browserRecognition && !canUseCloudFinalAsr()) {
+                asrStarting = false;
                 showCustomAlert('当前浏览器不支持实时语音识别', '语音识别不可用');
                 return;
             }
@@ -7201,6 +7222,8 @@ ${memoryBlock}
                 state.voiceState = 'error';
                 updateUI();
                 showCustomAlert('语音识别启动失败: ' + error.message, '语音识别错误');
+            } finally {
+                asrStarting = false;
             }
         }
 
