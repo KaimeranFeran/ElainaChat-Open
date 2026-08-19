@@ -3244,6 +3244,30 @@
                 </section>
 
                 <section>
+                    <div class="modal-label flex items-center gap-2"><span class="text-emerald-500">✦</span> 视觉模型（图片转述，可选）</div>
+                    <p class="text-[11px] text-indigo-300 leading-relaxed mb-3">图片对话时先用该模型"看图转述"成文字，再交给主模型（如 DeepSeek）回答。留空则不启用转译，图片直接发给当前模型（需要当前模型本身支持图片）。</p>
+                    <div class="space-y-3">
+                        <div>
+                            <label class="text-xs text-indigo-500 mb-1 block">视觉模型 API 地址（OpenAI 兼容）</label>
+                            <input id="settingVisionBaseUrl" autocomplete="off" type="url" inputmode="url" class="modal-input text-sm" placeholder="https://api.siliconflow.cn/v1 等">
+                        </div>
+                        <div>
+                            <label class="text-xs text-indigo-500 mb-1 block">视觉模型 API Key</label>
+                            <input id="settingVisionApiKey" autocomplete="new-password" type="password" class="modal-input text-sm" placeholder="sk-...">
+                        </div>
+                        <div>
+                            <label class="text-xs text-indigo-500 mb-1 block">视觉模型名</label>
+                            <div class="flex items-center gap-2">
+                                <input id="settingVisionModel" autocomplete="off" type="text" class="modal-input text-sm flex-1" placeholder="Qwen/Qwen2.5-VL-72B-Instruct 等">
+                                <button id="fetchVisionModelsBtn" class="btn-secondary text-xs" type="button" title="从当前 API 地址拉取可用模型列表">🔄 获取模型</button>
+                            </div>
+                            <select id="visionModelsSelect" class="modal-input text-xs mt-2 hidden" style="max-width:100%"></select>
+                        </div>
+                    </div>
+                    <p class="text-[11px] text-indigo-300 leading-relaxed mt-2">视觉模型请求同样从当前设备直接发出。未配置时保持原有行为：图片直接发送给当前模型。</p>
+                </section>
+
+                <section>
                     <div class="modal-label flex items-center gap-2"><span class="text-fuchsia-500">✦</span> 记忆</div>
                     <div class="flex items-center justify-between mb-3">
                         <label class="text-xs text-indigo-700 cursor-pointer flex items-center gap-1.5">
@@ -3540,7 +3564,10 @@ ${DEFAULT_CHARACTER_PREFERENCES}
             dashscopeApiKey: '',
             thinkingMode: false,
             autoMemory: false,
-            memoryEvery: 6
+            memoryEvery: 6,
+            visionBaseUrl: '',
+            visionApiKey: '',
+            visionModel: ''
         };
             const ELENA_QUOTES = [
         { text: '旅途的意义，不在于终点，而在于沿途遇见的每一个你。', source: '《魔女之旅》' },
@@ -3864,8 +3891,17 @@ ${DEFAULT_CHARACTER_PREFERENCES}
                     return { title: '网络连接失败', message: '无法直连服务商；Web 版还可能受到浏览器 CORS 限制，可改用自己的兼容地址。' };
                 case 'REQUEST_TIMEOUT':
                     return { title: '请求超时', message: '服务商响应超时，请稍后再试。' };
-                case 'BAD_REQUEST':
-                    return { title: '请求内容有误', message: '本次请求内容有误，请稍后重试。' };
+                case 'BAD_REQUEST': {
+                    const detail = String(apiError.message || '').trim();
+                    return {
+                        title: '请求内容有误',
+                        message: '本次请求内容有误（HTTP 400）。'
+                            + (detail ? '\n\n服务商返回：' + detail.slice(0, 200) : '')
+                            + '\n\n图片转述常见原因：视觉模型名不对、图片过大、或该模型不支持图片。请检查 设置→视觉 的模型名，或换用 Qwen-VL 等支持图片的模型。'
+                    };
+                }
+                case 'VISION_FAILED':
+                    return { title: '图片转述失败', message: apiError.message || '图片转述失败，请检查视觉模型设置后重试。' };
                 case 'EMPTY_MODEL_OUTPUT':
                     return { title: '模型未生成回复', message: apiError.message || '模型返回了空内容或仅返回思考内容，请重试。' };
                 case 'SERVER_MISCONFIGURED':
@@ -4403,6 +4439,53 @@ ${memoryBlock}
         }
 
         async function callAI(text, options = {}) {
+            // 方案 A：图片 → 视觉模型转述 → 文本给主模型（配置了视觉模型且本轮带图时）
+            const hasImage = isSafeComposerImageDataUrl(options.imageDataUrl);
+            const hasVision = Boolean(String(state.settings.visionBaseUrl || '').trim() && String(state.settings.visionModel || '').trim());
+            if (hasImage && hasVision) {
+                try {
+                    // 视觉（多模态）模型直接处理图片 + 用户消息，返回其回应
+                    const visionReply = await describeImageWithVision(text, options.imageDataUrl);
+                    if (visionReply && visionReply.trim()) {
+                        // 把多模态模型的回应作为参考，交给主模型用角色卡修正
+                        options = { ...options, imageDataUrl: '', visionContext: visionReply.trim() };
+                        text = (String(text || '').trim() ? String(text).trim() + '\n' : '')
+                            + `（图片已由多模态模型看过，以下是它对该图片与用户消息的回应参考：${visionReply.trim()}。请你以角色身份自然地接续这段内容，用自己的口吻回应；不要复述这段参考，也不要提及“多模态模型”或“参考”。）`;
+                    }
+                } catch (err) {
+                    const visionErr = String(err?.message || err || '');
+                    console.error('[Vision] 视觉模型转述失败:', { error: visionErr, baseUrl: state.settings.visionBaseUrl, model: state.settings.visionModel });
+                    if (/not a multimodal|not multimodal|does not support (image|vision)|vision.*not supported|multimodal model/i.test(visionErr)) {
+                        showCustomAlert(
+                            '视觉模型不支持图片（服务商提示：' + visionErr.slice(0, 160) + '）。\n\n请把 设置 → 视觉 的「模型名」换成支持图片的多模态模型（如 Qwen-VL、GLM-4V、GPT-4o）。当前模型名：' + String(state.settings.visionModel || ''),
+                            '视觉模型配置错误'
+                        );
+                    } else if (/quota|exhausted|insufficient|funds|balance|free tier|credit|payment/i.test(visionErr)) {
+                        showCustomAlert(
+                            '服务商提示：' + visionErr.slice(0, 220) +
+                            '\n\n这是账号额度问题，不是应用问题：\n· 免费额度已用完 → 请在服务商控制台充值；\n· 或关闭"仅使用免费档"（use free tier only）模式；\n· 或换一个还有额度的模型（点「🔄 获取模型」查看）。',
+                            '服务商额度不足'
+                        );
+                    } else {
+                        showCustomAlert(
+                            '图片转述失败：' + visionErr +
+                            '\n\n请检查 设置 → 视觉 的 API 地址 / Key / 模型名。\n（本次未把图片转发给主模型，避免出现误导性报错）',
+                            '图片转述失败'
+                        );
+                    }
+                    // 明确失败，不再把图片丢给主模型（避免主模型报 "not multimodal" 之类误导错误）
+                    throw new ClientApiError('VISION_FAILED', '图片转述失败：' + visionErr);
+                }
+            } else if (hasImage && !hasVision) {
+                // 未配置视觉模型：图片直接给当前模型，会话内提示一次
+                if (!state._visionHintShown) {
+                    state._visionHintShown = true;
+                    showCustomAlert(
+                        '未配置视觉模型，图片将直接发送给当前模型（若当前模型不支持图片会报错）。\n建议在 设置 → 视觉 配置 OpenAI 兼容视觉模型（如 Qwen-VL / Qwen2.5-VL），图片会自动转述成文字后再回答。',
+                        '图片模式提示'
+                    );
+                }
+            }
             const messages = ROLEPLAY_PROMPT_STRUCTURE_MODE === 'legacy-v1'
                 ? buildLegacyRoleplayMessages(text, options)
                 : buildLayeredRoleplayMessages(text, options);
@@ -4412,6 +4495,34 @@ ${memoryBlock}
                     ? ROLEPLAY_OUTPUT_TOKEN_LIMITS.withVoice
                     : ROLEPLAY_OUTPUT_TOKEN_LIMITS.text
             });
+        }
+
+        /** 用视觉（多模态）模型直接处理图片 + 用户消息，返回其回应；
+         *  主模型会基于此回应结合角色卡做最终修正，避免转述模板损失信息。 */
+        async function describeImageWithVision(prompt, imageDataUrl) {
+            const base = String(state.settings.visionBaseUrl || '').trim().replace(/\/+$/, '');
+            const endpoint = /\/chat\/completions$/i.test(base) ? base : `${base}/chat/completions`;
+            const messages = [
+                {
+                    role: 'system',
+                    content: '你是图片理解助手。请仔细观察图片，并结合用户的消息直接作出回应：先简要说说你看到的画面（人物/场景/动作/表情/文字等），再针对用户的话给出回应。只描述图中可见内容，不要编造。'
+                },
+                {
+                    role: 'user',
+                    content: [
+                        { type: 'text', text: String(prompt || '').trim() || '看看这张图，跟我说说' },
+                        { type: 'image_url', image_url: { url: imageDataUrl } }
+                    ]
+                }
+            ];
+            const result = await postJsonFromDevice(endpoint, {
+                model: String(state.settings.visionModel || '').trim(),
+                messages,
+                max_tokens: 512
+            }, { Authorization: 'Bearer ' + (String(state.settings.visionApiKey || '').trim() || 'sk-no-key') });
+            if (!result.ok) await throwProviderResponseError(result, '视觉模型请求失败');
+            const text = result.payload?.choices?.[0]?.message?.content;
+            return typeof text === 'string' ? text : '';
         }
 
         function splitVoiceReply(rawText) {
@@ -8536,6 +8647,9 @@ ${memoryBlock}
             updateTtsProviderUI();
 
             document.getElementById('settingDashscopeApiKey').value = state.settings.dashscopeApiKey || '';
+            document.getElementById('settingVisionBaseUrl').value = state.settings.visionBaseUrl || '';
+            document.getElementById('settingVisionApiKey').value = state.settings.visionApiKey || '';
+            document.getElementById('settingVisionModel').value = state.settings.visionModel || '';
             elements.settingAutoMemory.checked = Boolean(state.settings.autoMemory);
             elements.settingMemoryEvery.value = state.settings.memoryEvery || 6;
 
@@ -8609,7 +8723,10 @@ ${memoryBlock}
                 doubaoResourceId: document.getElementById('settingDoubaoResourceId')?.value || 'seed-tts-2.0',
                 dashscopeTtsModel: document.getElementById('settingDashscopeTtsModel')?.value.trim() || 'qwen3-tts-flash',
                 dashscopeTtsVoice: document.getElementById('settingDashscopeTtsVoice')?.value.trim() || 'Cherry',
-                dashscopeApiKey: document.getElementById('settingDashscopeApiKey')?.value.trim() || ''
+                dashscopeApiKey: document.getElementById('settingDashscopeApiKey')?.value.trim() || '',
+                visionBaseUrl: document.getElementById('settingVisionBaseUrl')?.value.trim() || '',
+                visionApiKey: document.getElementById('settingVisionApiKey')?.value.trim() || '',
+                visionModel: document.getElementById('settingVisionModel')?.value.trim() || ''
             };
         }
 
@@ -8805,6 +8922,56 @@ ${memoryBlock}
             elements.cancelSettings.addEventListener('click', closeSettingsPanel);
             elements.settingsOverlay.addEventListener('click', (e) => {
                 if (e.target === elements.settingsOverlay) closeSettingsPanel();
+            });
+            async function fetchOpenAIModelList(baseUrl, apiKey) {
+                let base = String(baseUrl || '').trim().replace(/\/+$/, '');
+                if (!base) throw new Error('请先填写 API Base URL');
+                if (/\/chat\/completions$/i.test(base)) base = base.replace(/\/chat\/completions$/i, '');
+                const endpoint = /\/models$/i.test(base) ? base : base + '/models';
+                const response = await fetchWithTimeout(endpoint, {
+                    method: 'GET',
+                    headers: { Authorization: 'Bearer ' + String(apiKey || '').trim() }
+                }, 20000);
+                const raw = await response.text();
+                if (!response.ok) {
+                    let msg = 'HTTP ' + response.status;
+                    try { const j = JSON.parse(raw); msg = j?.error?.message || j?.message || msg; } catch { /* ignore */ }
+                    throw new Error(msg);
+                }
+                let payload;
+                try { payload = JSON.parse(raw); } catch { throw new Error('接口返回不是有效 JSON'); }
+                const models = ((payload && payload.data) || []).map(m => m && m.id).filter(Boolean);
+                return models.sort((a, b) => String(a).localeCompare(String(b)));
+            }
+            async function populateModelSelect({ btn, input, select, baseUrl, apiKey }) {
+                const old = btn.textContent;
+                btn.textContent = '⏳ 获取中…';
+                try {
+                    const models = await fetchOpenAIModelList(baseUrl, apiKey);
+                    if (!models.length) throw new Error('接口未返回模型列表（data 为空），可能该服务不支持 /models');
+                    select.innerHTML = '';
+                    for (const m of models) {
+                        const o = document.createElement('option');
+                        o.value = m; o.textContent = m;
+                        select.appendChild(o);
+                    }
+                    select.classList.remove('hidden');
+                    select.onchange = () => { input.value = select.value; };
+                    if (input.value && models.includes(input.value)) select.value = input.value;
+                } catch (err) {
+                    showCustomAlert('获取模型列表失败：' + (err?.message || err) + '\n\n请确认 API 地址与 Key 正确，且该服务支持 /v1/models 接口。', '获取模型');
+                } finally {
+                    btn.textContent = old;
+                }
+            }
+            document.getElementById('fetchVisionModelsBtn')?.addEventListener('click', () => {
+                void populateModelSelect({
+                    btn: document.getElementById('fetchVisionModelsBtn'),
+                    input: document.getElementById('settingVisionModel'),
+                    select: document.getElementById('visionModelsSelect'),
+                    baseUrl: document.getElementById('settingVisionBaseUrl')?.value,
+                    apiKey: document.getElementById('settingVisionApiKey')?.value
+                });
             });
             elements.saveSettings.addEventListener('click', saveSettings);
             elements.settingApiFormat.addEventListener('change', () => {

@@ -3,12 +3,13 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "test": "node --test --test-concurrency=1 test/voice-race.test.mjs test/context-structure.test.mjs test/byok-provider.test.mjs test/chat-adapters.test.mjs test/tts-providers.test.mjs",
+    "test": "node --test --test-concurrency=1 test/voice-race.test.mjs test/context-structure.test.mjs test/byok-provider.test.mjs test/chat-adapters.test.mjs test/tts-providers.test.mjs test/vision-translate.test.mjs",
     "sync": "npx cap sync android",
     "open:android": "npx cap open android",
     "build:debug": "npm run sync && cd android && gradlew.bat assembleDebug",
     "test:voice-race": "node --test --test-concurrency=1 test/voice-race.test.mjs",
-    "test:context-structure": "node --test --test-concurrency=1 test/context-structure.test.mjs"
+    "test:context-structure": "node --test --test-concurrency=1 test/context-structure.test.mjs",
+    "test:vision": "node --test --test-concurrency=1 test/vision-translate.test.mjs"
   },
   "dependencies": {
     "@capacitor/android": "^7.4.3",
