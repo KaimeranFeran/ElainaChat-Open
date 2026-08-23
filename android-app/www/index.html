@@ -4984,9 +4984,12 @@ ${memoryBlock}
         // ==================== 记忆导出 / 导入 ====================
 
         const MEMORY_BACKUP_KIND = 'elainachat-memory-backup';
+        const MEMORY_BUILD_TAG = '20260823-v3';
         let memoryFileInput = null;
         let qrScanStream = null;
         let qrScanTimer = null;
+        let memoryFilePickedAt = 0;
+        let memoryFileWatchTimer = null;
 
         function ensureMemoryFileInput() {
             if (memoryFileInput) return memoryFileInput;
@@ -5068,7 +5071,8 @@ ${memoryBlock}
 
         function getNativeDocumentFilePlugin() {
             if (typeof window === 'undefined' || !window.Capacitor || !window.Capacitor.isNativePlatform || !window.Capacitor.isNativePlatform()) return null;
-            return window.Capacitor.Plugins && window.Capacitor.Plugins.DocumentFile || null;
+            const P = (window.Capacitor.Plugins) || {};
+            return P.FileBridge || P.DocumentFile || null;
         }
 
         function base64EncodeUtf8(text) {
@@ -5080,18 +5084,19 @@ ${memoryBlock}
 
         async function exportMemoryAsFileNative(payload, format) {
             const plugin = getNativeDocumentFilePlugin();
-            if (!plugin || !plugin.exportFile) return false;
+            if (!plugin) return false;
+            const saveFn = plugin.saveFile || plugin.exportFile;
+            if (!saveFn) return false;
             const title = ((payload.conversation && payload.conversation.title) || '记忆备份').replace(/[\\/:*?"<>|]/g, '_').slice(0, 30);
             const stamp = new Date().toISOString().slice(0, 10);
             const filename = `ElainaChat_记忆_${title}_${stamp}.${format === 'txt' ? 'txt' : 'json'}`;
             const content = format === 'txt' ? memoryPayloadToText(payload) : JSON.stringify(payload, null, 2);
             const mime = format === 'txt' ? 'text/plain' : 'application/json';
             try {
-                return Promise.resolve(plugin.exportFile({ filename, mime, data: base64EncodeUtf8(content) }))
-                    .then((result) => ({ ok: true, filename: (result && result.filename) || filename, uri: (result && result.uri) || '' }))
-                    .catch((err) => { throw err; });
+                const result = await Promise.resolve(saveFn.call(plugin, { filename, mime, data: base64EncodeUtf8(content) }));
+                return { ok: true, filename: (result && result.filename) || filename, uri: (result && result.uri) || '', location: (result && result.location) || '' };
             } catch (err) {
-                return Promise.reject(err);
+                throw err;
             }
         }
 
@@ -5101,26 +5106,29 @@ ${memoryBlock}
             const doNative = () => exportMemoryAsFileNative(payload, format);
             const hasCap = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
             const plugin = getNativeDocumentFilePlugin();
+            const saveFn = plugin && (plugin.saveFile || plugin.exportFile);
+            const fname = `ElainaChat_记忆_${title}_${stamp}.${format === 'txt' ? 'txt' : 'json'}`;
+            const content = format === 'txt' ? memoryPayloadToText(payload) : JSON.stringify(payload, null, 2);
             if (!hasCap) {
-                if (format === 'txt') downloadTextFile(`ElainaChat_记忆_${title}_${stamp}.txt`, memoryPayloadToText(payload));
-                else downloadTextFile(`ElainaChat_记忆_${title}_${stamp}.json`, JSON.stringify(payload, null, 2));
-                showCustomAlert('记忆已导出。', '导出记忆');
+                downloadTextFile(fname, content);
+                showCustomAlert('记忆已导出（网页下载方式）。', '导出记忆');
                 return;
             }
-            if (plugin && plugin.exportFile) {
+            if (saveFn) {
                 doNative().then(ok => {
                     if (ok) {
-                        const fname = ok.filename || `ElainaChat_记忆_${title}_${stamp}.${format === 'txt' ? 'txt' : 'json'}`;
                         showCustomModal({
                             title: '导出记忆',
-                            message: '记忆已保存到系统文件管理器。\n\n文件名：' + fname + '\n位置：已通过「保存文件」对话框选择。\n\n可在系统「文件管理」App 中查看该文件。',
+                            message: '记忆已保存到系统「下载」文件夹。\n\n文件名：' + (ok.filename || fname) + '\n位置：' + ((ok.location) || '下载/ElainaChat/') + '\n\n可在系统「文件管理 → 下载」中查看，无需任何系统对话框。',
                             confirmText: '知道了',
                             showCancel: false
                         });
-                    } else { downloadTextFile(`ElainaChat_记忆_${title}_${stamp}.${format === 'txt' ? 'txt' : 'json'}`, format === 'txt' ? memoryPayloadToText(payload) : JSON.stringify(payload, null, 2)); showCustomAlert('记忆已导出。', '导出记忆'); }
+                    } else { downloadTextFile(fname, content); showCustomAlert('记忆已导出（下载方式）。', '导出记忆'); }
                 }).catch(err => {
-                    downloadTextFile(`ElainaChat_记忆_${title}_${stamp}.${format === 'txt' ? 'txt' : 'json'}`, format === 'txt' ? memoryPayloadToText(payload) : JSON.stringify(payload, null, 2));
-                    showCustomAlert('导出完成（已使用备选保存方式）。', '导出记忆');
+                    const msg = String((err && err.message) || err || '');
+                    if (msg.toLowerCase().indexOf('cancel') >= 0) return; // 用户取消，静默
+                    downloadTextFile(fname, content);
+                    showCustomAlert('原生保存失败：\n' + msg + '\n\n已尝试用「下载」方式保存。\n（请截图本提示反馈给开发者）', '导出记忆');
                 });
                 return;
             }
@@ -5128,7 +5136,7 @@ ${memoryBlock}
             try {
                 pluginKeys = Object.keys((window.Capacitor && window.Capacitor.Plugins) || {}).join(', ');
             } catch (e) { pluginKeys = '(无法枚举)'; }
-            showCustomAlert('检测到原生环境，但未找到文件桥接插件（DocumentFile）。\n\nCapacitor: ' + (!!window.Capacitor) + '\nPlugins.DocumentFile: ' + (!!(window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.DocumentFile)) + '\n可用插件: ' + (pluginKeys || '无') + '\n\n请把此提示截图反馈给开发者。', '导出记忆');
+            showCustomAlert('检测到原生环境，但未找到文件桥接插件（FileBridge）。\n\nCapacitor: ' + (!!window.Capacitor) + '\nPlugins.FileBridge: ' + (!!(window.Capacitor && window.Capacitor.Plugins && (window.Capacitor.Plugins.FileBridge || window.Capacitor.Plugins.DocumentFile))) + '\n可用插件: ' + (pluginKeys || '无') + '\n\n请把此提示截图反馈给开发者。', '导出记忆');
         }
 
         function makeQrDataUrl(text) {
@@ -5165,6 +5173,25 @@ ${memoryBlock}
             if (o) o.remove();
         }
 
+        function runMemoryFileDiagnostics() {
+            const lines = [];
+            lines.push('构建: ' + MEMORY_BUILD_TAG);
+            lines.push('UA: ' + String(navigator.userAgent).slice(0, 100));
+            const cap = window.Capacitor;
+            lines.push('Capacitor: ' + (!!cap));
+            if (cap) {
+                lines.push('platform: ' + String(cap.getPlatform ? cap.getPlatform() : '?'));
+                lines.push('native: ' + String(cap.isNativePlatform ? cap.isNativePlatform() : '?'));
+                lines.push('androidBridge: ' + (!!window.androidBridge));
+            }
+            let keys = [];
+            try { keys = Object.keys((cap && cap.Plugins) || {}); } catch (e) { keys = ['enum-error']; }
+            lines.push('Plugins(' + keys.length + '): ' + keys.join(', '));
+            const fb = cap && cap.Plugins && (cap.Plugins.FileBridge || cap.Plugins.DocumentFile);
+            lines.push('FileBridge: ' + (fb ? ('有(saveFile=' + (typeof fb.saveFile) + ', listFiles=' + (typeof fb.listFiles) + ', readFile=' + (typeof fb.readFile) + ')') : '无'));
+            showCustomAlert(lines.join('\n'), '文件桥诊断 ' + MEMORY_BUILD_TAG);
+        }
+
         function showMemoryExportDialog(preferredScope) {
             closeComposerToolsMenu();
             closeMessageContextMenu();
@@ -5194,10 +5221,14 @@ ${memoryBlock}
                       <label class="flex items-center gap-2 text-xs text-indigo-700 cursor-pointer"><input type="radio" name="memFormat" value="qr" class="accent-pink-500"> 二维码（互传）</label>
                     </div>
                     <button id="memExportGo" class="btn-primary text-sm w-full">导出</button>
+                    <button id="memDiagExport" class="btn-secondary text-[11px] text-indigo-400 w-full">运行诊断（构建 20260823-v3）</button>
                     <button data-mem-close class="btn-secondary text-sm w-full">取消</button>
+                    <div class="text-[10px] text-indigo-300 text-center">构建 20260823-v3 · 直接保存到「下载」</div>
                   </div>
                 </div>`;
             bindMemoryOverlay(overlay);
+            const diagExport = overlay.querySelector('#memDiagExport');
+            if (diagExport) diagExport.addEventListener('click', e => { e.stopPropagation(); runMemoryFileDiagnostics(); });
             const multi = overlay.querySelector('[data-mem-multiselect]');
             if (multi) multi.addEventListener('click', e => { e.stopPropagation(); closeMemoryOverlay(); enterMessageSelection(); });
             overlay.querySelector('#memExportGo').addEventListener('click', e => {
@@ -5249,51 +5280,99 @@ ${memoryBlock}
                     <button data-mem-close class="ml-auto p-1.5 rounded-lg hover:bg-white/60"><svg class="w-4 h-4 text-indigo-400" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 18L18 6M6 6l12 12"/></svg></button>
                   </div>
                   <div class="p-5 space-y-3">
-                    <button id="memImportLocal" class="btn-primary text-sm w-full">从本地文件导入（JSON）</button>
-                    ${getNativeDocumentFilePlugin() ? '<button id="memImportNative" class="btn-secondary text-sm w-full">用系统文件管理器打开（原生）</button>' : ''}
+                    <button id="memImportLocal" class="btn-primary text-sm w-full">从「下载」导入记忆（JSON）</button>
                     <button id="memImportQr" class="btn-primary text-sm w-full">二维码互传（扫码导入）</button>
+                    <button id="memDiagImport" class="btn-secondary text-[11px] text-indigo-400 w-full">运行诊断（构建 20260823-v3）</button>
                     <button data-mem-close class="btn-secondary text-sm w-full">取消</button>
+                    <div class="text-[10px] text-indigo-300 text-center">构建 20260823-v3 · 无系统文件选择器方案</div>
                   </div>
                 </div>`;
             bindMemoryOverlay(overlay);
             overlay.querySelector('#memImportLocal').addEventListener('click', e => { e.stopPropagation(); closeMemoryOverlay(); importMemoryFromLocal(); });
-            const nativeBtn = overlay.querySelector('#memImportNative');
-            if (nativeBtn) nativeBtn.addEventListener('click', e => { e.stopPropagation(); closeMemoryOverlay(); importMemoryFromNative(); });
             overlay.querySelector('#memImportQr').addEventListener('click', e => { e.stopPropagation(); showMemoryQrScanModal(); });
+            const diagImport = overlay.querySelector('#memDiagImport');
+            if (diagImport) diagImport.addEventListener('click', e => { e.stopPropagation(); runMemoryFileDiagnostics(); });
         }
 
         function importMemoryFromLocal() {
-            // 与图片上传同一个机制：Android/Capacitor WebView 由系统处理 file input 唤起文件选择器
+            const plugin = getNativeDocumentFilePlugin();
+            if (plugin && plugin.listFiles && plugin.readFile) {
+                importFromDownloadsList(plugin);
+                return;
+            }
+            // 网页（浏览器）环境：使用 file input
             const input = ensureMemoryFileInput();
             input.value = '';
+            const basePick = memoryFilePickedAt;
             input.click();
+            window.clearTimeout(memoryFileWatchTimer);
+            memoryFileWatchTimer = window.setTimeout(() => {
+                if (memoryFilePickedAt === basePick) {
+                    showCustomAlert('【诊断 ' + MEMORY_BUILD_TAG + '】未检测到文件选择结果。\n\n（网页环境请直接选择文件；App 内出现本提示说明文件桥插件不可用，请点「运行诊断」并截图反馈）', '导入记忆');
+                }
+            }, 6000);
         }
 
-        function importMemoryFromNative() {
-            const plugin = getNativeDocumentFilePlugin();
-            if (!plugin || !plugin.importFile) { ensureMemoryFileInput().click(); return; }
-            plugin.importFile({ mime: 'application/json' })
-                .then(result => {
-                    const content = result && result.content;
-                    if (!content) return;
-                    try {
-                        const payload = JSON.parse(String(content));
-                        if (!payload || payload.kind !== MEMORY_BACKUP_KIND) throw new Error('不是记忆备份文件');
-                        handleImportedMemoryPayload(payload);
-                    } catch (err) {
-                        showCustomAlert('文件解析失败：' + ((err && err.message) || err), '导入记忆');
-                    }
-                })
-                .catch(err => {
-                    const msg = String((err && err.message) || err || '');
-                    if (msg.indexOf('cancelled') >= 0) return;
-                    showCustomAlert('读取文件失败：\n' + msg + '\n\n(请截图反馈：是否弹出了系统文件选择器)', '导入记忆');
+        function importFromDownloadsList(plugin) {
+            const overlay = buildMemoryOverlay();
+            overlay.innerHTML = `
+                <div class="modal-panel w-full max-w-xs flex flex-col overflow-hidden animate-modal-pop">
+                  <div class="flex items-center gap-3 px-5 py-4 border-b border-white/60">
+                    <div class="text-base font-bold text-indigo-950">从「下载」导入</div>
+                    <button data-mem-close class="ml-auto p-1.5 rounded-lg hover:bg-white/60"><svg class="w-4 h-4 text-indigo-400" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 18L18 6M6 6l12 12"/></svg></button>
+                  </div>
+                  <div class="p-5 space-y-3">
+                    <div id="memListBox" class="text-xs text-indigo-600 leading-relaxed max-h-64 overflow-y-auto scroll-soft">正在扫描「下载/ElainaChat」文件夹…</div>
+                    <div class="text-[10px] text-indigo-300 leading-relaxed" id="memListLoading"></div>
+                    <button data-mem-close class="btn-secondary text-sm w-full">关闭</button>
+                  </div>
+                </div>`;
+            bindMemoryOverlay(overlay);
+            plugin.listFiles({ prefix: 'ElainaChat_记忆' }).then(result => {
+                const files = (result && result.files) || [];
+                const box = overlay.querySelector('#memListBox');
+                const loading = overlay.querySelector('#memListLoading');
+                if (!box) return;
+                if (!files.length) {
+                    box.innerHTML = '「下载/ElainaChat」里没有找到记忆备份文件。\n\n请先「导出记忆」（会自动保存到那里），或把 .json 备份文件复制进手机的 Download/ElainaChat 目录。';
+                    return;
+                }
+                box.innerHTML = '';
+                files.forEach(f => {
+                    const btn = document.createElement('button');
+                    btn.className = 'w-full text-left px-3 py-2 rounded-lg bg-white/40 border border-white/50 hover:bg-white/70 text-indigo-800 transition-colors';
+                    const sizeText = f.size ? (f.size >= 1048576 ? (f.size / 1048576).toFixed(1) + ' MB' : (f.size / 1024).toFixed(1) + ' KB') : '';
+                    const dateText = f.date ? new Date(Number(f.date) * 1000).toLocaleString() : '';
+                    btn.innerHTML = '<span class="block text-xs font-medium truncate">' + escapeHtml(String(f.name || '')) + '</span><span class="block text-[10px] text-indigo-400 mt-0.5">' + escapeHtml(sizeText + (sizeText && dateText ? ' · ' : '') + dateText) + '</span>';
+                    btn.addEventListener('click', e => {
+                        e.stopPropagation();
+                        if (loading) loading.textContent = '正在读取 ' + String(f.name || '') + ' …';
+                        plugin.readFile({ uri: String(f.uri || '') }).then(r => {
+                            try {
+                                const payload = JSON.parse(String((r && r.content) || ''));
+                                if (!payload || payload.kind !== MEMORY_BACKUP_KIND) throw new Error('不是记忆备份文件');
+                                closeMemoryOverlay();
+                                handleImportedMemoryPayload(payload);
+                            } catch (err) {
+                                showCustomAlert('文件解析失败：' + ((err && err.message) || err), '导入记忆');
+                            }
+                        }).catch(err => {
+                            if (loading) loading.textContent = '';
+                            showCustomAlert('读取文件失败：\n' + String((err && err.message) || err || ''), '导入记忆');
+                        });
+                    });
+                    box.appendChild(btn);
                 });
+            }).catch(err => {
+                const box = overlay.querySelector('#memListBox');
+                if (box) box.textContent = '扫描「下载」失败：' + String((err && err.message) || err || '');
+            });
         }
 
         function onMemoryFileChosen(evt) {
             const file = evt.target.files && evt.target.files[0];
             evt.target.value = '';
+            memoryFilePickedAt = Date.now();
             if (!file) return;
             const reader = new FileReader();
             reader.onload = () => {

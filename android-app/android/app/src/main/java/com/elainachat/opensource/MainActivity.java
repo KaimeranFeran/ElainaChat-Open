@@ -9,7 +9,7 @@ public class MainActivity extends BridgeActivity {
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(ByokSecretsPlugin.class);
         registerPlugin(ByokHttpPlugin.class);
-        registerPlugin(DocumentFilePlugin.class);
+        registerPlugin(FileBridgePlugin.class);
         super.onCreate(savedInstanceState);
     }
 }
