@@ -456,6 +456,119 @@
         .conversation-context-menu button.danger { color: #a65347; }
         .conversation-context-menu svg { width: 16px; height: 16px; flex: 0 0 16px; }
 
+        /* ==================== 消息长按上下文菜单（撤回/多选/编辑） ==================== */
+        .message-context-menu {
+            position: fixed;
+            z-index: 901;
+            width: 184px;
+            padding: 6px;
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            color: var(--pixso-brown, #4c3123);
+            background: rgba(255, 252, 246, 0.96);
+            border: 1px solid rgba(217, 199, 192, 0.9);
+            border-radius: 15px;
+            box-shadow: 0 16px 36px rgba(76, 49, 35, 0.2), inset 0 1px 0 rgba(255,255,255,.92);
+            backdrop-filter: blur(18px) saturate(1.08);
+            -webkit-backdrop-filter: blur(18px) saturate(1.08);
+            opacity: 0;
+            transform: translateY(-4px) scale(.97);
+            transform-origin: top right;
+            pointer-events: none;
+            transition: opacity .16s ease, transform .16s cubic-bezier(.16, 1, .3, 1);
+        }
+        .message-context-menu.is-open {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+            pointer-events: auto;
+        }
+        .message-context-menu button {
+            appearance: none;
+            -webkit-appearance: none;
+            min-height: 38px;
+            padding: 0 10px;
+            display: flex;
+            align-items: center;
+            gap: 9px;
+            color: inherit;
+            background: transparent;
+            border: 0;
+            border-radius: 10px;
+            font-size: 13px;
+            font-weight: 650;
+            text-align: left;
+        }
+        .message-context-menu button:active { background: rgba(226, 214, 190, .58); }
+        .message-context-menu button.danger { color: #a65347; }
+        .message-context-menu button.is-disabled { opacity: .45; pointer-events: none; }
+        .message-context-menu svg { width: 16px; height: 16px; flex: 0 0 16px; }
+
+        /* 消息多选态 */
+        #conversationHistory.message-multi-select .message-item { cursor: pointer; }
+        .message-item.is-selected { border-radius: 16px; }
+        .message-item.is-selected .bubble-user,
+        .message-item.is-selected .bubble-ai {
+            border: 2px solid var(--pixso-orange, #e8a34a);
+            box-shadow: 0 0 0 3px rgba(232, 163, 74, 0.22);
+        }
+        .message-item .message-select-mark {
+            position: absolute;
+            top: 8px;
+            left: 8px;
+            z-index: 2;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            border: 2px solid rgba(120, 90, 70, .45);
+            background: rgba(255, 255, 255, .9);
+            color: #fff;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            font-weight: 800;
+            line-height: 1;
+        }
+        #conversationHistory.message-multi-select .message-item .message-select-mark { display: flex; }
+        #conversationHistory.message-multi-select .message-item.is-selected .message-select-mark {
+            border-color: var(--pixso-orange, #e8a34a);
+            background: var(--pixso-orange, #e8a34a);
+        }
+        .message-item { position: relative; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+
+        /* 消息多选浮层操作栏 */
+        .message-selection-bar {
+            position: fixed;
+            top: 92px;
+            left: 50%;
+            transform: translateX(-50%) translateY(-16px);
+            z-index: 960;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 10px;
+            border-radius: 999px;
+            color: var(--pixso-brown, #4c3123);
+            background: rgba(255, 252, 246, 0.97);
+            border: 1px solid rgba(217, 199, 192, 0.9);
+            box-shadow: 0 10px 24px rgba(76, 49, 35, .18);
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity .18s ease, transform .18s cubic-bezier(.16, 1, .3, 1);
+        }
+        .message-selection-bar.is-open { opacity: 1; transform: translateX(-50%) translateY(0); pointer-events: auto; }
+        .message-selection-bar .sel-count { font-size: 13px; font-weight: 800; padding: 0 4px; }
+        .message-selection-bar button {
+            appearance: none; border: 0; background: transparent; cursor: pointer;
+            font-size: 12px; font-weight: 650; color: inherit;
+            padding: 6px 10px; border-radius: 9px;
+        }
+        .message-selection-bar button.primary { background: var(--pixso-orange, #e8a34a); color: #fff; }
+        .message-selection-bar button.primary:disabled { opacity: .5; pointer-events: none; }
+        .message-selection-bar button:active { background: rgba(226, 214, 190, .6); }
+        .message-selection-bar button.primary:active { background: var(--pixso-orange, #e8a34a); }
+
         /* 兼容旧 WebView（Chromium < 87 不支持 inset 简写，会导致浮层定位失效）：
            用长属性兜底所有 fixed inset-0 浮层，新 WebView 上效果与 inset: 0 相同。 */
         .fixed.inset-0 { top: 0; right: 0; bottom: 0; left: 0; }
@@ -5371,6 +5484,370 @@ ${memoryBlock}
             }
         }
 
+        // ==================== 消息长按操作（撤回 / 多选 / 编辑） ====================
+
+        let messageContextMenu = null;
+        let messageContextTarget = null;
+        let suppressMessageClickUntil = 0;
+        const messageSelection = { active: false, selectedIds: new Set() };
+
+        function currentConv() {
+            return state.conversations.find(c => c.id === state.currentConversationId);
+        }
+
+        function findMessage(conv, messageId) {
+            return conv.messages.find(m => String(m.id) === String(messageId));
+        }
+
+        function closeMessageContextMenu() {
+            if (messageContextTarget) {
+                messageContextTarget.classList.remove('is-context-target');
+                messageContextTarget = null;
+            }
+            if (!messageContextMenu) return;
+            const menu = messageContextMenu;
+            messageContextMenu = null;
+            menu.classList.remove('is-open');
+            window.setTimeout(() => menu.remove(), 170);
+        }
+
+        function isLatestUserMessage(conv, message) {
+            if (!conv || !message || message.role !== 'user') return false;
+            const lastUserIdx = conv.messages.reduce((last, m, i) => m.role === 'user' ? i : last, -1);
+            return lastUserIdx >= 0 && conv.messages[lastUserIdx].id === message.id;
+        }
+
+        function openMessageContextMenu(messageId, anchor) {
+            const conv = currentConv();
+            if (!conv) return;
+            const message = findMessage(conv, messageId);
+            if (!message) return;
+            closeMessageContextMenu();
+
+            const menu = document.createElement('div');
+            menu.className = 'message-context-menu';
+            menu.setAttribute('role', 'menu');
+            menu.setAttribute('aria-label', '消息操作');
+
+            const canEdit = isLatestUserMessage(conv, message);
+            const menuItems = [
+                { action: 'recall', label: '撤回消息', danger: true, icon: '<svg fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.9"><path stroke-linecap="round" stroke-linejoin="round" d="M3 3v5h5M3.05 8A9 9 0 106 3.3L3.5 5.8"/></svg>' },
+                { action: 'multiselect', label: '多选导出', danger: false, icon: '<svg fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.9"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>' }
+            ];
+            if (canEdit) {
+                menuItems.push({ action: 'edit', label: '修改并重新发送', danger: false, icon: '<svg fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.9"><path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.4-9.4a2 2 0 112.8 2.8L11.8 15H9v-2.8l8.6-8.6z"/></svg>' });
+            }
+
+            menu.innerHTML = menuItems.map(item => {
+                return `<button type="button" role="menuitem" data-message-action="${item.action}" class="${item.danger ? 'danger' : ''}">${item.icon}<span>${item.label}</span></button>`;
+            }).join('');
+
+            menu.addEventListener('pointerdown', (event) => event.stopPropagation());
+            menu.addEventListener('contextmenu', (event) => event.preventDefault());
+            menu.addEventListener('click', (event) => {
+                const button = event.target.closest('[data-message-action]');
+                if (!button) return;
+                event.preventDefault();
+                event.stopPropagation();
+                const action = button.dataset.messageAction;
+                closeMessageContextMenu();
+                if (action === 'recall') recallMessage(messageId);
+                else if (action === 'multiselect') enterMessageSelection();
+                else if (action === 'edit') editLatestMessage(messageId);
+            });
+
+            document.body.appendChild(menu);
+            messageContextMenu = menu;
+            messageContextTarget = anchor;
+            anchor.classList.add('is-context-target');
+
+            const rect = anchor.getBoundingClientRect();
+            const menuWidth = menu.offsetWidth || 184;
+            const menuHeight = menu.offsetHeight || 132;
+            const edge = 10;
+            const left = Math.min(Math.max(edge, rect.right - menuWidth), window.innerWidth - menuWidth - edge);
+            const top = Math.min(Math.max(edge, rect.bottom + 6), window.innerHeight - menuHeight - edge);
+            menu.style.left = `${left}px`;
+            menu.style.top = `${top}px`;
+            requestAnimationFrame(() => menu.classList.add('is-open'));
+        }
+
+        function removeMessageContentFromMemory(messageText) {
+            const needle = String(messageText || '').trim().replace(/\s+/g, ' ');
+            if (!needle || !state.memoryCore) return;
+            const mc = state.memoryCore;
+            const hits = (t) => {
+                const s = String(t || '').replace(/\s+/g, ' ').trim();
+                return s && s.includes(needle);
+            };
+            let removed = false;
+            const filterText = (arr) => {
+                if (!Array.isArray(arr)) return arr;
+                const next = arr.filter(s => !hits(s));
+                if (next.length !== arr.length) removed = true;
+                return next;
+            };
+            const filterObj = (arr) => {
+                if (!Array.isArray(arr)) return arr;
+                const next = arr.filter(e => !hits(e && e.content));
+                if (next.length !== arr.length) removed = true;
+                return next;
+            };
+            mc.promise = filterText(mc.promise);
+            mc.preference = filterText(mc.preference);
+            mc.motivation = filterText(mc.motivation);
+            mc.pivotal_memory = filterText(mc.pivotal_memory);
+            mc.diary = filterObj(mc.diary);
+            mc.plan = filterObj(mc.plan);
+            if (removed) saveMemoryCore();
+        }
+
+        async function recallMessage(messageId) {
+            const conv = currentConv();
+            if (!conv) return;
+            const msg = findMessage(conv, messageId);
+            if (!msg) return;
+            const confirmed = await showCustomConfirm('确认撤回这条消息？\n撤回会把它从界面和记忆中删除。');
+            if (!confirmed) return;
+
+            const idx = conv.messages.findIndex(m => String(m.id) === String(messageId));
+            if (idx < 0) return;
+            const removed = [msg];
+            if (msg.role === 'user' && idx + 1 < conv.messages.length && conv.messages[idx + 1].role === 'ai') {
+                removed.push(conv.messages[idx + 1]);
+            }
+            removed.forEach(m => {
+                removeMessageContentFromMemory(m.text || (m.imageName ? '（图片）' : ''));
+            });
+
+            conv.messages.splice(idx, removed.length);
+            const removedIds = new Set(removed.map(m => String(m.id)));
+            state.favorites = state.favorites.filter(f => !(f.type === 'message' && removedIds.has(String(f.messageId))));
+            removed.forEach(m => {
+                activeReplyTasks.delete(`${conv.id}:${m.id}`);
+                pendingAutomaticVoiceMessageIds.delete(String(m.id));
+                if (voicePlaybackTasksByMessageId) voicePlaybackTasksByMessageId.delete(String(m.id));
+            });
+            if (state.thinkingMessageId && removedIds.has(String(state.thinkingMessageId))) state.thinkingMessageId = null;
+            saveConversations();
+            saveFavorites();
+            updateNotesBadge();
+            renderFolderList();
+            loadConversation(conv.id);
+            showCustomAlert('已撤回这条消息。', '撤回');
+        }
+
+        function enterMessageSelection() {
+            messageSelection.active = true;
+            messageSelection.selectedIds.clear();
+            const hist = elements.conversationHistory;
+            hist.classList.add('message-multi-select');
+            hist.querySelectorAll('.message-item').forEach(el => {
+                el.classList.add('is-multi-selectable');
+                const id = String(el.id.replace(/^msg-/, ''));
+                el.classList.toggle('is-selected', messageSelection.selectedIds.has(id));
+            });
+            renderMessageSelectionBar();
+        }
+
+        function exitMessageSelection() {
+            if (!messageSelection.active) return;
+            messageSelection.active = false;
+            messageSelection.selectedIds.clear();
+            const hist = elements.conversationHistory;
+            hist.classList.remove('message-multi-select');
+            hist.querySelectorAll('.message-item').forEach(el => {
+                el.classList.remove('is-selected', 'is-multi-selectable');
+            });
+            const bar = document.getElementById('messageSelectionBar');
+            if (bar) bar.classList.remove('is-open');
+        }
+
+        function renderMessageSelectionBar() {
+            let bar = document.getElementById('messageSelectionBar');
+            if (!bar) {
+                bar = document.createElement('div');
+                bar.id = 'messageSelectionBar';
+                bar.className = 'message-selection-bar';
+                bar.innerHTML = `
+                    <span class="sel-count">已选 0 条</span>
+                    <button class="primary" type="button" onclick="exportSelectedMessages()">导出为txt</button>
+                    <button type="button" onclick="exitMessageSelection()">取消</button>
+                `;
+                document.body.appendChild(bar);
+            }
+            const count = messageSelection.selectedIds.size;
+            bar.querySelector('.sel-count').textContent = `已选 ${count} 条`;
+            const exportBtn = bar.querySelector('button.primary');
+            if (exportBtn) exportBtn.disabled = count === 0;
+            bar.classList.add('is-open');
+        }
+
+        function toggleMessageSelection(messageId) {
+            if (!messageSelection.active) return;
+            const id = String(messageId);
+            if (messageSelection.selectedIds.has(id)) messageSelection.selectedIds.delete(id);
+            else messageSelection.selectedIds.add(id);
+            const el = document.getElementById(`msg-${id}`);
+            if (el) el.classList.toggle('is-selected', messageSelection.selectedIds.has(id));
+            renderMessageSelectionBar();
+        }
+
+        function getSelectedMessages() {
+            const conv = currentConv();
+            if (!conv) return [];
+            return conv.messages.filter(m => messageSelection.selectedIds.has(String(m.id)));
+        }
+
+        function exportSelectedMessages() {
+            const conv = currentConv();
+            const selected = getSelectedMessages();
+            if (!conv || !selected.length) {
+                showCustomAlert('还没有选择消息。', '导出');
+                return;
+            }
+            const characterName = (state.characterCard && state.characterCard.name) || '伊蕾娜';
+            const lines = [];
+            lines.push('ElainaChat 对话导出');
+            lines.push(`会话：${conv.title || '未命名'}`);
+            lines.push(`导出于：${new Date().toLocaleString()}`);
+            lines.push(`共 ${selected.length} 条消息`);
+            lines.push('----------------------------------------');
+            selected.forEach(m => {
+                const role = m.role === 'user' ? 'You' : characterName;
+                const time = m.timestamp || '';
+                const text = (m.text || '').replace(/\s+/g, ' ').trim();
+                const image = m.imageName ? '[图片] ' : '';
+                if (time) lines.push(`[${time}] ${role}：`);
+                else lines.push(`${role}：`);
+                if (text) lines.push(text);
+                else if (image) lines.push(image);
+                lines.push('');
+            });
+            const content = lines.join('\n');
+            const safeTitle = (conv.title || 'conversation').replace(/[\\/:*?"<>|]/g, '_').slice(0, 30);
+            const filename = `elainachat_${safeTitle}_${Date.now()}.txt`;
+            downloadTextFile(filename, content);
+            showCustomAlert('已导出为纯文本 txt。', '导出完成');
+        }
+
+        function downloadTextFile(filename, text) {
+            const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            a.rel = 'noopener';
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 1500);
+        }
+
+        async function editLatestMessage(messageId) {
+            const conv = currentConv();
+            if (!conv) return;
+            const msg = findMessage(conv, messageId);
+            if (!msg) return;
+            if (!isLatestUserMessage(conv, msg)) {
+                showCustomAlert('只能修改最近发送的一条消息。', '修改消息');
+                return;
+            }
+            const newText = await showCustomPrompt('修改这条消息的内容：', msg.text || '');
+            if (newText == null) return;
+            const trimmed = String(newText || '').trim();
+            if (!trimmed) {
+                showCustomAlert('消息内容不能为空。', '修改消息');
+                return;
+            }
+
+            const oldText = msg.text || '';
+            const idx = conv.messages.findIndex(m => String(m.id) === String(messageId));
+            if (idx < 0) return;
+
+            if (typeof stopActiveVoicePlayback === 'function') stopActiveVoicePlayback();
+            removeMessageContentFromMemory(oldText);
+
+            const removeCount = (idx + 1 < conv.messages.length && conv.messages[idx + 1].role === 'ai') ? 2 : 1;
+            const removedMessages = conv.messages.splice(idx, removeCount);
+            removedMessages.forEach(m => {
+                activeReplyTasks.delete(`${conv.id}:${m.id}`);
+                pendingAutomaticVoiceMessageIds.delete(String(m.id));
+                if (voicePlaybackTasksByMessageId) voicePlaybackTasksByMessageId.delete(String(m.id));
+            });
+
+            const newMessage = {
+                id: generateId(),
+                role: 'user',
+                text: trimmed,
+                timestamp: new Date().toLocaleTimeString()
+            };
+            if (msg.imageDataUrl) {
+                newMessage.imageDataUrl = msg.imageDataUrl;
+                newMessage.imageName = msg.imageName || '';
+                if (msg.imageRequestDataUrl !== undefined) {
+                    Object.defineProperty(newMessage, 'imageRequestDataUrl', {
+                        value: msg.imageRequestDataUrl,
+                        configurable: true,
+                        enumerable: false
+                    });
+                }
+            }
+
+            conv.messages.splice(idx, 0, newMessage);
+            conv.updatedAt = new Date().toISOString();
+            saveConversations();
+
+            loadConversation(conv.id);
+            state.voiceState = 'thinking';
+            updateUI();
+            handleUserInput(newMessage, conv);
+            showCustomAlert('消息已修改并重新发送。', '修改消息');
+        }
+
+        function attachMessageInteractions(el, messageId) {
+            let longPressTimer = null;
+            let longPressStartX = 0;
+            let longPressStartY = 0;
+            const cancelLongPress = () => {
+                if (longPressTimer) window.clearTimeout(longPressTimer);
+                longPressTimer = null;
+            };
+            el.addEventListener('pointerdown', (event) => {
+                if (!event.isPrimary || event.target.closest('button') || event.target.closest('input')) return;
+                if (messageSelection.active) return;
+                cancelLongPress();
+                longPressStartX = event.clientX;
+                longPressStartY = event.clientY;
+                longPressTimer = window.setTimeout(() => {
+                    longPressTimer = null;
+                    suppressMessageClickUntil = Date.now() + 800;
+                    openMessageContextMenu(messageId, el);
+                }, 520);
+            });
+            el.addEventListener('pointermove', (event) => {
+                if (!longPressTimer) return;
+                if (Math.hypot(event.clientX - longPressStartX, event.clientY - longPressStartY) > 9) cancelLongPress();
+            });
+            el.addEventListener('pointerup', cancelLongPress);
+            el.addEventListener('pointercancel', cancelLongPress);
+            el.addEventListener('click', (event) => {
+                if (event.target.closest('button')) return;
+                if (messageSelection.active) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    toggleMessageSelection(messageId);
+                    return;
+                }
+                if (Date.now() < suppressMessageClickUntil) return;
+            });
+            el.addEventListener('contextmenu', (event) => {
+                event.preventDefault();
+                if (messageSelection.active) return;
+                openMessageContextMenu(messageId, el);
+            });
+        }
+
         function updateNotesBadge() {
             const count = state.favorites.length;
             if (count > 0) {
@@ -6007,6 +6484,10 @@ ${memoryBlock}
         function loadConversation(conversationId) {
             const conv = state.conversations.find(c => c.id === conversationId);
             if (!conv) return;
+
+            // 切换/刷新会话时重置消息操作浮层与多选状态
+            closeMessageContextMenu();
+            exitMessageSelection();
 
             state.currentConversationId = conversationId;
             updateCurrentConversationTitle();
@@ -6710,8 +7191,22 @@ ${memoryBlock}
                     </div>
                 `;
             }
+            // 附加多选标记圆点
+            const selectMark = document.createElement('span');
+            selectMark.className = 'message-select-mark';
+            selectMark.textContent = '✓';
+            div.appendChild(selectMark);
+
             elements.conversationHistory.appendChild(div);
             elements.conversationHistory.scrollTop = elements.conversationHistory.scrollHeight;
+
+            // 附加消息交互（长按菜单 / 多选 / 桌面右键）
+            if (messageSelection.active) {
+                div.classList.add('is-multi-selectable');
+                div.classList.toggle('is-selected', messageSelection.selectedIds.has(String(message.id)));
+            }
+            attachMessageInteractions(div, message.id);
+
             return div;
         }
 
@@ -8964,7 +9459,11 @@ ${memoryBlock}
             });
 
             document.addEventListener('keydown', (e) => {
-                if (e.key === 'Escape') closeComposerToolsMenu();
+                if (e.key === 'Escape') {
+                    closeComposerToolsMenu();
+                    closeMessageContextMenu();
+                    if (messageSelection.active) exitMessageSelection();
+                }
                 if (e.key === 'Escape' && state.selectedFavoriteId) {
                     collapseFavorite();
                 }
@@ -9038,9 +9537,15 @@ ${memoryBlock}
             elements.mobileSidebarClose.addEventListener('click', closeSidebarDrawer);
             elements.sidebarOverlay.addEventListener('click', closeSidebarDrawer);
             elements.folderList.addEventListener('scroll', closeConversationContextMenu, { passive: true });
+            if (elements.conversationHistory) {
+                elements.conversationHistory.addEventListener('scroll', () => {
+                    closeMessageContextMenu();
+                }, { passive: true });
+            }
             window.addEventListener('resize', () => {
                 syncViewportHeight();
                 closeConversationContextMenu();
+                closeMessageContextMenu();
                 requestAnimationFrame(alignFloatingMicToComposer);
             });
             if (window.visualViewport) {
@@ -9048,8 +9553,12 @@ ${memoryBlock}
                 window.visualViewport.addEventListener('scroll', syncViewportHeight);
             }
             document.addEventListener('pointerdown', (e) => {
-                if (!conversationContextMenu || conversationContextMenu.contains(e.target)) return;
-                closeConversationContextMenu();
+                if (conversationContextMenu && !conversationContextMenu.contains(e.target)) {
+                    closeConversationContextMenu();
+                }
+                if (messageContextMenu && !messageContextMenu.contains(e.target)) {
+                    closeMessageContextMenu();
+                }
             });
             document.addEventListener('click', (e) => {
                 if (window.innerWidth > 860 || !document.body.classList.contains('sidebar-open')) return;
