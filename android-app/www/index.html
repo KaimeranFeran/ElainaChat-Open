@@ -4027,6 +4027,11 @@ ${DEFAULT_CHARACTER_PREFERENCES}
 
         function getClientErrorPresentation(error) {
             const apiError = toClientApiError(error);
+            const errText = String(apiError.message || '');
+            if (/敏感|违规|拦截|审核|违禁|色情|淫秽|不当|policy|nsfw/i.test(errText)) {
+                appLog('warn', '内容安全拦截提示: ' + errText.slice(0, 200));
+                return { title: '内容被安全策略拦截', message: '这条内容被安全策略拦截（可能是敏感内容触发）。\n\n建议换一种更含蓄的说法再发一次。' };
+            }
             switch (apiError.code) {
                 case 'APP_KEY_MISSING':
                     return { title: '需要填写 Key', message: apiError.message || '请先在设置中填写对应服务商的 API Key。' };
@@ -5008,7 +5013,7 @@ ${memoryBlock}
         // ==================== 记忆导出 / 导入 ====================
 
         const MEMORY_BACKUP_KIND = 'elainachat-memory-backup';
-        const MEMORY_BUILD_TAG = '20260823-v4';
+        const MEMORY_BUILD_TAG = '20260823-v5';
         let memoryFileInput = null;
         let qrScanStream = null;
         let qrScanTimer = null;
@@ -5073,7 +5078,10 @@ ${memoryBlock}
             if (document.getElementById('memTapCss')) return;
             const s = document.createElement('style');
             s.id = 'memTapCss';
-            s.textContent = '.tap-flash{animation:tapFlash .45s ease;}@keyframes tapFlash{0%{transform:scale(1)}30%{transform:scale(.9)}100%{transform:scale(1)}}';
+            s.textContent = '.tap-flash{animation:tapFlash .45s ease;}@keyframes tapFlash{0%{transform:scale(1)}30%{transform:scale(.9)}100%{transform:scale(1)}}' +
+                '.message-continue-btn{display:block;margin:10px auto 4px;padding:8px 18px;border-radius:9999px;border:1px solid rgba(236,72,153,.4);background:linear-gradient(135deg,rgba(244,114,182,.18),rgba(139,92,246,.18));color:#db2777;font-size:12px;font-weight:600;cursor:pointer;box-shadow:0 4px 12px rgba(236,72,153,.15);animation:modal-pop .3s ease both;}' +
+                '.message-continue-btn:active{transform:scale(.96);}' +
+                '.message-continue-btn:hover{background:linear-gradient(135deg,rgba(244,114,182,.32),rgba(139,92,246,.32));}';
             document.head.appendChild(s);
         })();
         function guardedMemoryOpen(label, fn) {
@@ -5401,7 +5409,7 @@ ${memoryBlock}
                       <label class="flex items-center gap-2 text-xs text-indigo-700 cursor-pointer"><input type="radio" name="memFormat" value="qr" class="accent-pink-500"> 二维码（互传）</label>
                     </div>
                     <button id="memExportGo" class="btn-primary text-sm w-full">导出</button>
-                    <button id="memDiagExport" class="btn-secondary text-[11px] text-indigo-400 w-full">运行诊断（构建 20260823-v4）</button>
+                    <button id="memDiagExport" class="btn-secondary text-[11px] text-indigo-400 w-full">运行诊断（构建 20260823-v5）</button>
                     <button data-mem-close class="btn-secondary text-sm w-full">取消</button>
                     <div class="text-[10px] text-indigo-300 text-center">构建 20260823-v4 · 先试文件管理器，失败自动存「下载」</div>
                   </div>
@@ -5462,7 +5470,7 @@ ${memoryBlock}
                   <div class="p-5 space-y-3">
                     <button id="memImportLocal" class="btn-primary text-sm w-full">从「下载」导入记忆（JSON）</button>
                     <button id="memImportQr" class="btn-primary text-sm w-full">二维码互传（扫码导入）</button>
-                    <button id="memDiagImport" class="btn-secondary text-[11px] text-indigo-400 w-full">运行诊断（构建 20260823-v4）</button>
+                    <button id="memDiagImport" class="btn-secondary text-[11px] text-indigo-400 w-full">运行诊断（构建 20260823-v5）</button>
                     <button data-mem-close class="btn-secondary text-sm w-full">取消</button>
                     <div class="text-[10px] text-indigo-300 text-center">构建 20260823-v4 · 先试文件管理器，失败自动扫描「下载」</div>
                   </div>
@@ -6300,6 +6308,48 @@ ${memoryBlock}
             window.setTimeout(() => menu.remove(), 170);
         }
 
+        async function editAiMessage(messageId) {
+            const conv = currentConv();
+            if (!conv) return;
+            const msg = findMessage(conv, messageId);
+            if (!msg) return;
+            const newText = await showCustomPrompt('修改这条回复的内容：', msg.text || '');
+            if (newText == null) return;
+            const trimmed = String(newText || '').trim();
+            if (!trimmed) { showCustomAlert('内容不能为空。', '修改回复'); return; }
+            msg.text = trimmed;
+            saveConversations();
+            const el = document.getElementById('msg-' + messageId);
+            if (el) {
+                const p = el.querySelector('.bubble-ai p');
+                if (p) p.textContent = trimmed;
+            }
+            appLog('info', '修改AI回复: ' + String(messageId).slice(0, 8));
+            memShowToast('回复已修改');
+        }
+
+        function regenerateAiMessage(messageId) {
+            const conv = currentConv();
+            if (!conv) return;
+            const idx = conv.messages.findIndex(m => String(m.id) === String(messageId));
+            if (idx < 0) return;
+            const removed = conv.messages.splice(idx);
+            removed.forEach(m => {
+                activeReplyTasks.delete(conv.id + ':' + m.id);
+                pendingAutomaticVoiceMessageIds.delete(String(m.id));
+                if (voicePlaybackTasksByMessageId) voicePlaybackTasksByMessageId.delete(String(m.id));
+            });
+            saveConversations();
+            loadConversation(conv.id);
+            let lastUser = null;
+            for (let i = conv.messages.length - 1; i >= 0; i--) {
+                if (conv.messages[i].role === 'user') { lastUser = conv.messages[i]; break; }
+            }
+            if (!lastUser) { showCustomAlert('没有可用的用户消息来重新生成。', '重新生成'); return; }
+            memShowToast('正在重新生成回复…');
+            handleUserInput(lastUser, conv);
+        }
+
         function isLatestUserMessage(conv, message) {
             if (!conv || !message || message.role !== 'user') return false;
             const lastUserIdx = conv.messages.reduce((last, m, i) => m.role === 'user' ? i : last, -1);
@@ -6319,12 +6369,17 @@ ${memoryBlock}
             menu.setAttribute('aria-label', '消息操作');
 
             const canEdit = isLatestUserMessage(conv, message);
+            const isAiMessage = message.role === 'ai';
             const menuItems = [
                 { action: 'recall', label: '撤回消息', danger: true, icon: '<svg fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.9"><path stroke-linecap="round" stroke-linejoin="round" d="M3 3v5h5M3.05 8A9 9 0 106 3.3L3.5 5.8"/></svg>' },
                 { action: 'multiselect', label: '多选导出', danger: false, icon: '<svg fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.9"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>' }
             ];
             if (canEdit) {
                 menuItems.push({ action: 'edit', label: '修改并重新发送', danger: false, icon: '<svg fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.9"><path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.4-9.4a2 2 0 112.8 2.8L11.8 15H9v-2.8l8.6-8.6z"/></svg>' });
+            }
+            if (isAiMessage) {
+                menuItems.push({ action: 'editAi', label: '修改这条回复', danger: false, icon: '<svg fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.9"><path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.4-9.4a2 2 0 112.8 2.8L11.8 15H9v-2.8l8.6-8.6z"/></svg>' });
+                menuItems.push({ action: 'regenerate', label: '重新生成这条回复', danger: false, icon: '<svg fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.9"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>' });
             }
 
             menu.innerHTML = menuItems.map(item => {
@@ -6343,6 +6398,8 @@ ${memoryBlock}
                 if (action === 'recall') recallMessage(messageId);
                 else if (action === 'multiselect') enterMessageSelection();
                 else if (action === 'edit') editLatestMessage(messageId);
+                else if (action === 'editAi') editAiMessage(messageId);
+                else if (action === 'regenerate') regenerateAiMessage(messageId);
             });
 
             document.body.appendChild(menu);
@@ -7321,6 +7378,7 @@ ${memoryBlock}
             conv.messages.forEach(message => {
                 renderMessage(message);
             });
+            maybeShowContinueReplyButton();
             renderFolderList();
             syncRailActive();
             if (elements.conversationHistory) {
@@ -8971,6 +9029,7 @@ ${memoryBlock}
                 return;
             }
             activeReplyTasks.add(replyTaskKey);
+            hideContinueReplyButton();
             let automaticVoiceMessageKey = '';
 
             const t0 = performance.now();
@@ -9030,6 +9089,7 @@ ${memoryBlock}
                     if (state.currentConversationId === conversation.id && !state.notesMode && !state.diaryMode && !document.getElementById(`msg-${aiMessage.id}`)) {
                         renderMessage(aiMessage);
                     }
+                    maybeShowContinueReplyButton();
                     state.voiceState = 'idle';
                     updateUI();
 
@@ -9117,7 +9177,65 @@ ${memoryBlock}
             } finally {
                 if (Object.prototype.hasOwnProperty.call(message, 'imageRequestDataUrl')) delete message.imageRequestDataUrl;
                 activeReplyTasks.delete(replyTaskKey);
+                maybeShowContinueReplyButton();
             }
+        }
+
+        // ==================== 主动回复（继续生成一条，2 分钟窗口） ====================
+        const CONTINUE_REPLY_WINDOW_MS = 2 * 60 * 1000;
+        let continueReplyTimer = null;
+        function hasActiveReplyForConv(convId) {
+            for (const k of activeReplyTasks) {
+                if (k.indexOf(convId + ':') === 0) return true;
+            }
+            return false;
+        }
+        function hideContinueReplyButton() {
+            const el = document.getElementById('continueReplyBtn');
+            if (el) el.remove();
+            if (continueReplyTimer) { window.clearTimeout(continueReplyTimer); continueReplyTimer = null; }
+        }
+        function maybeShowContinueReplyButton() {
+            const conv = currentConv();
+            const hist = elements.conversationHistory;
+            if (!conv || !hist || hist.classList.contains('hidden') || state.notesMode || state.diaryMode || state.thinkingMessageId) { hideContinueReplyButton(); return; }
+            if (hasActiveReplyForConv(conv.id)) { hideContinueReplyButton(); return; }
+            const last = conv.messages[conv.messages.length - 1];
+            if (!last || last.role !== 'ai') { hideContinueReplyButton(); return; }
+            const lastAt = conv.updatedAt ? new Date(conv.updatedAt).getTime() : 0;
+            const age = Date.now() - lastAt;
+            if (!lastAt || age > CONTINUE_REPLY_WINDOW_MS) { hideContinueReplyButton(); return; }
+            let btn = document.getElementById('continueReplyBtn');
+            if (!btn) {
+                btn = document.createElement('button');
+                btn.id = 'continueReplyBtn';
+                btn.type = 'button';
+                btn.className = 'message-continue-btn';
+                btn.textContent = '💬 让伊蕾娜继续回复一条';
+                btn.addEventListener('click', (ev) => {
+                    ev.stopPropagation();
+                    hideContinueReplyButton();
+                    continueReply(conv);
+                });
+                hist.appendChild(btn);
+                hist.scrollTop = hist.scrollHeight;
+            }
+            if (continueReplyTimer) window.clearTimeout(continueReplyTimer);
+            continueReplyTimer = window.setTimeout(() => {
+                if (document.getElementById('continueReplyBtn')) hideContinueReplyButton();
+            }, Math.max(0, CONTINUE_REPLY_WINDOW_MS - age));
+        }
+        function continueReply(conv) {
+            if (!conv || !conv.id || hasActiveReplyForConv(conv.id)) { memShowToast('伊蕾娜正在回复中，请稍候…'); return; }
+            memShowToast('已让伊蕾娜继续回复一条…');
+            appLog('info', '主动回复-继续生成（对话 ' + conv.id + '）');
+            const synthetic = {
+                id: generateId(),
+                role: 'user',
+                text: '（请继续生成下一条回复：自然地延续当前对话，不要重复或总结已说的内容）',
+                timestamp: new Date().toLocaleTimeString()
+            };
+            handleUserInput(synthetic, conv);
         }
 
         // ==================== TTS ====================
