@@ -3195,6 +3195,15 @@
                         <button id="previewPromptBtn" class="btn-secondary text-xs">查看完整 Prompt</button>
                         <button id="resetCharacterBtn" class="btn-secondary text-xs">恢复默认伊蕾娜卡</button>
                     </div>
+                    <div class="mt-3 border-t border-white/60 pt-3">
+                        <div class="text-xs font-bold text-indigo-800 mb-2">角色设定快捷槽位</div>
+                        <div class="flex items-center gap-2">
+                            <button id="charaSlotSaveBtn" class="btn-primary text-xs">保存到槽位</button>
+                            <button id="charaSlotUseBtn" class="btn-secondary text-xs">选择设定</button>
+                        </div>
+                        <div id="charaSlotPicker" class="hidden mt-2 bg-white/60 border border-white/70 rounded-xl p-2 space-y-1 max-h-40 overflow-y-auto scroll-soft"></div>
+                        <p class="text-[10px] text-indigo-300 leading-relaxed mt-2">把当前角色卡存为快捷槽位；重复设定会自动去重并把旧槽位移到最前。点「选择设定」可快速套用。</p>
+                    </div>
                 </section>
 
                 <section>
@@ -3468,30 +3477,39 @@
         </div>
     </div>
 
-    <!-- 当前会话独立世界观 / 人设卡 -->
+    <!-- 当前会话独立角色卡 / 世界观 -->
     <div id="conversationPromptOverlay" class="fixed inset-0 hidden items-center justify-center p-4 modal-overlay">
         <div class="modal-panel guide-modal-panel animate-modal-pop">
             <div class="guide-modal-scroll scroll-soft">
                 <div class="guide-eyebrow">仅对当前会话生效</div>
-                <h2 class="guide-title font-bold">当前会话设定</h2>
-                <p class="guide-field-hint mt-2">作为全局伊蕾娜角色卡的补充，不会影响其他对话。两项内容合计最多 400 字。</p>
-                <div class="conversation-prompt-grid mt-4">
+                <h2 class="guide-title font-bold">当前会话角色卡</h2>
+                <p class="guide-field-hint mt-2">在这里为该对话配置独立的角色卡与世界观，会整体替换全局角色卡（仅本对话生效）。留空并保存则回到使用全局角色卡。</p>
+                <div class="grid grid-cols-2 gap-3 mt-4">
                     <div>
-                        <label for="conversationWorldInput" class="text-xs font-bold text-indigo-800 mb-1.5 block">独立世界观</label>
-                        <textarea id="conversationWorldInput" maxlength="400" class="modal-input text-sm w-full" placeholder="例如：这次对话发生在下着雪的钟表之城……"></textarea>
+                        <label for="convCcName" class="text-xs font-bold text-indigo-800 mb-1.5 block">角色名</label>
+                        <input id="convCcName" type="text" class="modal-input text-sm w-full" placeholder="伊蕾娜">
                     </div>
                     <div>
-                        <label for="conversationCharacterInput" class="text-xs font-bold text-indigo-800 mb-1.5 block">独立人设补充</label>
-                        <textarea id="conversationCharacterInput" maxlength="400" class="modal-input text-sm w-full" placeholder="例如：伊蕾娜正在以临时向导的身份陪用户旅行……"></textarea>
+                        <label for="convCcTitle" class="text-xs font-bold text-indigo-800 mb-1.5 block">称号</label>
+                        <input id="convCcTitle" type="text" class="modal-input text-sm w-full" placeholder="灰之魔女">
                     </div>
                 </div>
-                <div class="conversation-prompt-meta">
-                    <span>留空并保存即可清除当前会话设定</span>
-                    <span id="conversationPromptCount">0 / 400</span>
+                <div class="mt-3">
+                    <label for="convCcWorldSetting" class="text-xs font-bold text-indigo-800 mb-1.5 block">世界观设定</label>
+                    <textarea id="convCcWorldSetting" rows="8" class="modal-textarea text-sm w-full resize-y" placeholder="描述世界规则、时代背景，以及角色与用户为何能够面对面交流"></textarea>
                 </div>
-                <p id="conversationPromptError" class="guide-error hidden">两项内容合计不能超过 400 字。</p>
+                <div class="mt-3">
+                    <label for="convCcCharacterPrompt" class="text-xs font-bold text-indigo-800 mb-1.5 block">完整角色卡</label>
+                    <textarea id="convCcCharacterPrompt" rows="14" class="modal-textarea text-sm w-full resize-y" placeholder="直接填写完整角色身份、性格、表达方式、能力边界与对话规则"></textarea>
+                </div>
+                <div class="mt-3">
+                    <label for="convCcGreeting" class="text-xs font-bold text-indigo-800 mb-1.5 block">开场白（本对话问候语）</label>
+                    <input id="convCcGreeting" type="text" class="modal-input text-sm w-full">
+                </div>
+                <p id="conversationPromptError" class="guide-error hidden">保存失败，请检查填写内容。</p>
             </div>
             <div class="px-6 py-4 border-t border-white/60 flex justify-end gap-2">
+                <button id="convCcResetBtn" type="button" class="btn-secondary text-sm">使用默认卡</button>
                 <button id="conversationPromptCancelBtn" type="button" class="btn-secondary text-sm">取消</button>
                 <button id="conversationPromptSaveBtn" type="button" class="btn-primary text-sm">保存设定</button>
             </div>
@@ -3507,6 +3525,7 @@
             </div>
             <div id="customModalActions" class="px-6 py-4 border-t border-white/60 flex justify-end gap-2">
                 <button id="customModalCancelBtn" class="hidden btn-secondary text-sm">取消</button>
+                <button id="customModalExtraBtn" class="hidden btn-secondary text-sm">额外选项</button>
                 <button id="customModalConfirmBtn" class="btn-primary text-sm">确定</button>
             </div>
         </div>
@@ -3837,6 +3856,7 @@ ${DEFAULT_CHARACTER_PREFERENCES}
             customModalInput: document.getElementById('customModalInput'),
             customModalActions: document.getElementById('customModalActions'),
             customModalCancelBtn: document.getElementById('customModalCancelBtn'),
+            customModalExtraBtn: document.getElementById('customModalExtraBtn'),
             customModalConfirmBtn: document.getElementById('customModalConfirmBtn'),
             announcementOverlay: document.getElementById('announcementOverlay'),
             announcementTitle: document.getElementById('announcementTitle'),
@@ -3846,12 +3866,15 @@ ${DEFAULT_CHARACTER_PREFERENCES}
             announcementKeyError: document.getElementById('announcementKeyError'),
             announcementConfirmBtn: document.getElementById('announcementConfirmBtn'),
             conversationPromptOverlay: document.getElementById('conversationPromptOverlay'),
-            conversationWorldInput: document.getElementById('conversationWorldInput'),
-            conversationCharacterInput: document.getElementById('conversationCharacterInput'),
-            conversationPromptCount: document.getElementById('conversationPromptCount'),
             conversationPromptError: document.getElementById('conversationPromptError'),
             conversationPromptCancelBtn: document.getElementById('conversationPromptCancelBtn'),
             conversationPromptSaveBtn: document.getElementById('conversationPromptSaveBtn'),
+            convCcResetBtn: document.getElementById('convCcResetBtn'),
+            convCcName: document.getElementById('convCcName'),
+            convCcTitle: document.getElementById('convCcTitle'),
+            convCcWorldSetting: document.getElementById('convCcWorldSetting'),
+            convCcCharacterPrompt: document.getElementById('convCcCharacterPrompt'),
+            convCcGreeting: document.getElementById('convCcGreeting'),
             settingApiFormat: document.getElementById('settingApiFormat'),
             settingProviderMode: document.getElementById('settingProviderMode'),
             settingBaseUrl: document.getElementById('settingBaseUrl'),
@@ -4385,38 +4408,35 @@ ${DEFAULT_CHARACTER_PREFERENCES}
             return state.conversations.find(c => c.id === state.currentConversationId) || null;
         }
 
-        function normalizeConversationPrompt(value) {
-            return String(value || '').trim().slice(0, 400);
+        function getConversationCharacterCard(conv = getCurrentConversation()) {
+            if (!conv) return null;
+            const card = conv.characterCard;
+            if (!card) return null;
+            const hasContent = String(card.name || '').trim() || String(card.title || '').trim() || String(card.worldSetting || '').trim() || String(card.characterPrompt || '').trim() || String(card.greeting || '').trim();
+            return hasContent ? card : null;
         }
 
-        function getConversationPromptText(conv = getCurrentConversation()) {
-            if (!conv) return '';
-            const world = normalizeConversationPrompt(conv.worldSetting);
-            const character = normalizeConversationPrompt(conv.characterPrompt);
-            if (!world && !character) return '';
-            return `# 当前会话专属设定（仅本会话有效）\n${world ? `【独立世界观】\n${world}\n` : ''}${character ? `【独立人设补充】\n${character}` : ''}`.trim();
-        }
-
-        function updateConversationPromptCount() {
-            if (!elements.conversationPromptCount) return;
-            const count = String(elements.conversationWorldInput?.value || '').length + String(elements.conversationCharacterInput?.value || '').length;
-            elements.conversationPromptCount.textContent = `${count} / 400`;
-            elements.conversationPromptCount.classList.toggle('is-over', count > 400);
-            elements.conversationPromptError?.classList.toggle('hidden', count <= 400);
+        // 返回本对话实际生效的角色卡：有独立配置则用其，否则用全局卡
+        function getEffectiveCharacterCard(conv = getCurrentConversation()) {
+            return getConversationCharacterCard(conv) || state.characterCard;
         }
 
         function openConversationPromptEditor() {
             const conv = getCurrentConversation();
             if (!conv) {
-                showCustomAlert('请先进入一个对话，再设置当前会话的人设。', '当前会话设定');
+                showCustomAlert('请先进入一个对话，再设置当前会话的人设。', '当前会话角色卡');
                 return;
             }
-            elements.conversationWorldInput.value = String(conv.worldSetting || '');
-            elements.conversationCharacterInput.value = String(conv.characterPrompt || '');
-            updateConversationPromptCount();
+            const card = getConversationCharacterCard(conv) || state.characterCard;
+            elements.convCcName.value = String(card.name || '');
+            elements.convCcTitle.value = String(card.title || '');
+            elements.convCcWorldSetting.value = String(card.worldSetting || '');
+            elements.convCcCharacterPrompt.value = String(card.characterPrompt || '');
+            elements.convCcGreeting.value = String(card.greeting || '');
+            elements.conversationPromptError.classList.add('hidden');
             elements.conversationPromptOverlay.classList.remove('hidden');
             elements.conversationPromptOverlay.classList.add('flex');
-            setTimeout(() => elements.conversationWorldInput.focus(), 50);
+            setTimeout(() => elements.convCcName.focus(), 50);
         }
 
         function closeConversationPromptEditor() {
@@ -4425,22 +4445,32 @@ ${DEFAULT_CHARACTER_PREFERENCES}
             elements.conversationPromptError.classList.add('hidden');
         }
 
+        function resetConversationPromptCard() {
+            const card = state.characterCard;
+            elements.convCcName.value = String(card.name || '');
+            elements.convCcTitle.value = String(card.title || '');
+            elements.convCcWorldSetting.value = String(card.worldSetting || '');
+            elements.convCcCharacterPrompt.value = String(card.characterPrompt || '');
+            elements.convCcGreeting.value = String(card.greeting || '');
+        }
+
         function saveConversationPrompt() {
             const conv = getCurrentConversation();
             if (!conv) return;
-            const world = String(elements.conversationWorldInput.value || '').trim();
-            const character = String(elements.conversationCharacterInput.value || '').trim();
-            if (world.length + character.length > 400) {
-                updateConversationPromptCount();
-                elements.conversationPromptError.classList.remove('hidden');
-                return;
+            const name = String(elements.convCcName.value || '').trim();
+            const title = String(elements.convCcTitle.value || '').trim();
+            const worldSetting = String(elements.convCcWorldSetting.value || '').trim();
+            const characterPrompt = String(elements.convCcCharacterPrompt.value || '').trim();
+            const greeting = String(elements.convCcGreeting.value || '').trim();
+            if (name || title || worldSetting || characterPrompt || greeting) {
+                conv.characterCard = { name, title, worldSetting, characterPrompt, greeting };
+            } else {
+                delete conv.characterCard;
             }
-            conv.worldSetting = world;
-            conv.characterPrompt = character;
             conv.updatedAt = new Date().toISOString();
             saveConversations();
             closeConversationPromptEditor();
-            showCustomAlert('当前会话设定已保存，只会影响这个对话。', '保存成功');
+            showCustomAlert('当前会话角色卡已保存，只对这个对话生效。', '保存成功');
         }
 
         function getRecentHistoryMessages(text) {
@@ -4465,12 +4495,10 @@ ${DEFAULT_CHARACTER_PREFERENCES}
         }
 
         function buildLayeredRoleplayMessages(text, options = {}) {
-            const card = state.characterCard;
+            const card = getEffectiveCharacterCard();
             const characterName = String(card.name || '伊蕾娜').trim() || '伊蕾娜';
             const imageDataUrl = isSafeComposerImageDataUrl(options.imageDataUrl) ? options.imageDataUrl : '';
             const messages = buildCharacterSystemMessages(card);
-            const conversationPrompt = getConversationPromptText();
-            if (conversationPrompt) messages.push({ role: 'system', content: conversationPrompt });
             const memoryBlock = formatRoleplayMemoryForPrompt(text);
             if (memoryBlock) {
                 messages.push({ role: 'system', content: `# 记忆使用规则
@@ -4504,13 +4532,11 @@ ${memoryBlock}
         }
 
         function buildLegacyRoleplayMessages(text, options = {}) {
-            const card = state.characterCard;
+            const card = getEffectiveCharacterCard();
             const characterName = String(card.name || '伊蕾娜').trim() || '伊蕾娜';
             const imageDataUrl = isSafeComposerImageDataUrl(options.imageDataUrl) ? options.imageDataUrl : '';
             const legacyCharacterPrompt = `# 世界观设定\n${String(card.worldSetting || '').trim()}\n\n# 角色卡\n角色名：${String(card.name || '').trim()}\n称号：${String(card.title || '').trim()}\n${String(card.characterPrompt || '').trim()}`;
             const systemParts = [legacyCharacterPrompt];
-            const conversationPrompt = getConversationPromptText();
-            if (conversationPrompt) systemParts.push(conversationPrompt);
             if (options.includeVoiceJp) {
                 systemParts.push(`# 内部配音字段（不要展示给用户）
 完成中文回复后，在同一条输出末尾追加日语朗读稿，并严格包裹在 <voice_jp> 与 </voice_jp> 标签中。只翻译中文正文中的对白，不翻译括号、方括号或动作描写。标签及其内容是客户端内部字段，客户端会自动删除，禁止解释该字段。没有可朗读对白时输出空的 <voice_jp></voice_jp>。`);
@@ -5988,14 +6014,30 @@ ${memoryBlock}
             if (!conv) return;
             const msg = findMessage(conv, messageId);
             if (!msg) return;
-            const confirmed = await showCustomConfirm('确认撤回这条消息？\n撤回会把它从界面和记忆中删除。');
-            if (!confirmed) return;
-
+            const convLen = conv.messages.length;
             const idx = conv.messages.findIndex(m => String(m.id) === String(messageId));
+            const cascadeCount = (idx >= 0 && idx + 1 < convLen) ? (convLen - idx) : 0;
+            const choice = await showCustomModal({
+                title: '撤回消息',
+                message: cascadeCount > 0
+                    ? '撤回会把它从界面和记忆中删除。\n可以选择同时删除之后发送的所有内容。'
+                    : '确认撤回这条消息？\n撤回会把它从界面和记忆中删除。',
+                confirmText: '仅撤回这条',
+                extraText: cascadeCount > 0 ? (`同时删除之后 ${cascadeCount} 条`) : '',
+                extraValue: 'cascade',
+                showCancel: true
+            });
+            if (choice !== true && choice !== 'cascade') return;
+
             if (idx < 0) return;
-            const removed = [msg];
-            if (msg.role === 'user' && idx + 1 < conv.messages.length && conv.messages[idx + 1].role === 'ai') {
-                removed.push(conv.messages[idx + 1]);
+            let removed;
+            if (choice === 'cascade') {
+                removed = conv.messages.slice(idx);
+            } else {
+                removed = [msg];
+                if (msg.role === 'user' && idx + 1 < conv.messages.length && conv.messages[idx + 1].role === 'ai') {
+                    removed.push(conv.messages[idx + 1]);
+                }
             }
             removed.forEach(m => {
                 removeMessageContentFromMemory(m.text || (m.imageName ? '（图片）' : ''));
@@ -6015,7 +6057,7 @@ ${memoryBlock}
             updateNotesBadge();
             renderFolderList();
             loadConversation(conv.id);
-            showCustomAlert('已撤回这条消息。', '撤回');
+            showCustomAlert(choice === 'cascade' ? '已撤回这条消息，并删除其后所有消息。' : '已撤回这条消息。', '撤回');
         }
 
         function enterMessageSelection() {
@@ -6528,7 +6570,7 @@ ${memoryBlock}
 
         function showCustomModal(opts) {
             return new Promise(resolve => {
-                const { title = '提示', message = '', input = false, defaultValue = '', placeholder = '', confirmText = '确定', cancelText = '取消', showCancel = true } = opts;
+                const { title = '提示', message = '', input = false, defaultValue = '', placeholder = '', confirmText = '确定', cancelText = '取消', showCancel = true, extraText = '', extraValue = 'extra' } = opts;
                 elements.customModalTitle.textContent = title;
                 elements.customModalMessage.textContent = message;
                 elements.customModalMessage.classList.toggle('hidden', !message);
@@ -6540,6 +6582,10 @@ ${memoryBlock}
                 elements.customModalCancelBtn.textContent = cancelText;
                 elements.customModalConfirmBtn.textContent = confirmText;
                 elements.customModalCancelBtn.classList.toggle('hidden', !showCancel);
+                if (elements.customModalExtraBtn) {
+                    elements.customModalExtraBtn.textContent = extraText;
+                    elements.customModalExtraBtn.classList.toggle('hidden', !extraText);
+                }
 
                 elements.customModal.classList.remove('hidden');
                 elements.customModal.classList.add('flex');
@@ -6551,12 +6597,14 @@ ${memoryBlock}
                     elements.customModal.classList.add('hidden');
                     elements.customModal.classList.remove('flex');
                     elements.customModalCancelBtn.onclick = null;
+                    elements.customModalExtraBtn && (elements.customModalExtraBtn.onclick = null);
                     elements.customModalConfirmBtn.onclick = null;
                     elements.customModalInput.onkeydown = null;
                     resolve(value);
                 };
 
                 elements.customModalCancelBtn.onclick = () => done(input ? null : false);
+                if (elements.customModalExtraBtn) elements.customModalExtraBtn.onclick = () => done(extraValue);
                 elements.customModalConfirmBtn.onclick = () => {
                     if (input) {
                         const val = elements.customModalInput.value;
@@ -9627,6 +9675,109 @@ ${memoryBlock}
             document.getElementById('ccGreeting').value = DEFAULT_CHARACTER_CARD.greeting;
         }
 
+        // ==================== 角色设定快捷槽位 ====================
+
+        function getCharacterCardSlots() {
+            try {
+                const raw = localStorage.getItem('elaina_character_slots');
+                const arr = raw ? JSON.parse(raw) : [];
+                return Array.isArray(arr) ? arr : [];
+            } catch (e) { return []; }
+        }
+
+        function saveCharacterCardSlots(slots) {
+            localStorage.setItem('elaina_character_slots', JSON.stringify(slots));
+        }
+
+        // 忽略标签符号，用于重复检测
+        function normalizeSlotSignature(card) {
+            const text = [
+                String(card.name || ''),
+                String(card.title || ''),
+                String(card.worldSetting || ''),
+                String(card.characterPrompt || ''),
+                String(card.greeting || '')
+            ].join('\u0001').toLowerCase().replace(/[\s\u3000\n\r\t]+/g, ' ').replace(/[#*_~\[\]（）()【】"'\u201c\u201d\u2018\u2019]/g, '').trim();
+            return text;
+        }
+
+        function readCurrentCardFromSettings() {
+            return {
+                name: String(document.getElementById('ccName').value || '').trim(),
+                title: String(document.getElementById('ccTitle').value || '').trim(),
+                worldSetting: String(document.getElementById('ccWorldSetting').value || '').trim(),
+                characterPrompt: String(document.getElementById('ccCharacterPrompt').value || '').trim(),
+                greeting: String(document.getElementById('ccGreeting').value || '').trim()
+            };
+        }
+
+        function applyCardToSettings(card) {
+            document.getElementById('ccName').value = String(card.name || '');
+            document.getElementById('ccTitle').value = String(card.title || '');
+            document.getElementById('ccWorldSetting').value = String(card.worldSetting || '');
+            document.getElementById('ccCharacterPrompt').value = String(card.characterPrompt || '');
+            document.getElementById('ccGreeting').value = String(card.greeting || '');
+            closeCharaSlotPicker();
+        }
+
+        function cardSlotLabel(card, index) {
+            const name = String(card.name || '').trim() || '未命名角色';
+            const world = String(card.worldSetting || '').trim();
+            return '#' + (index + 1) + ' ' + name + (world ? ' · ' + world.slice(0, 18) : '');
+        }
+
+        function openCharaSlotPicker() {
+            const picker = document.getElementById('charaSlotPicker');
+            if (!picker) return;
+            const slots = getCharacterCardSlots();
+            if (!slots.length) {
+                picker.innerHTML = '<div class="text-[11px] text-indigo-400 px-2 py-1">还没有保存过设定槽位。</div>';
+            } else {
+                picker.innerHTML = slots.map((card, i) =>
+                    '<button type="button" class="chara-slot-option w-full text-left text-xs text-indigo-700 hover:bg-white/60 rounded-lg px-2 py-1.5" data-slot-index="' + i + '">' + escapeHtml(cardSlotLabel(card, i)) + '</button>'
+                ).join('');
+                picker.querySelectorAll('[data-slot-index]').forEach(btn => {
+                    btn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        applyCardToSettings(slots[Number(btn.dataset.slotIndex)]);
+                    });
+                });
+            }
+            picker.classList.remove('hidden');
+        }
+
+        function closeCharaSlotPicker() {
+            const picker = document.getElementById('charaSlotPicker');
+            if (picker) picker.classList.add('hidden');
+        }
+
+        function saveCharacterCardToSlot() {
+            const card = readCurrentCardFromSettings();
+            const signature = normalizeSlotSignature(card);
+            if (!signature) {
+                showCustomAlert('请先填写角色设定内容，再保存到槽位。', '保存槽位');
+                return;
+            }
+            let slots = getCharacterCardSlots();
+            const existingIndex = slots.findIndex(s => normalizeSlotSignature(s) === signature);
+            if (existingIndex >= 0) {
+                const [existing] = slots.splice(existingIndex, 1);
+                slots.unshift(existing);
+            } else {
+                slots.unshift(card);
+            }
+            slots = slots.slice(0, 20);
+            saveCharacterCardSlots(slots);
+            showCustomAlert('已保存到角色设定槽位。', '保存槽位');
+        }
+
+        function toggleCharaSlotPicker() {
+            const picker = document.getElementById('charaSlotPicker');
+            if (!picker) return;
+            if (picker.classList.contains('hidden')) openCharaSlotPicker();
+            else closeCharaSlotPicker();
+        }
+
         // ==================== 问候打字机 ====================
 
         let greetingTyping = false;
@@ -9634,7 +9785,7 @@ ${memoryBlock}
             if (greetingTyping) return;
             greetingTyping = true;
             const el = document.getElementById('greetingText');
-            const text = state.characterCard.greeting || DEFAULT_CHARACTER_CARD.greeting;
+            const text = String(getEffectiveCharacterCard().greeting || '').trim() || DEFAULT_CHARACTER_CARD.greeting;
             el.classList.add('typing-cursor');
             let i = 0;
             const timer = setInterval(() => {
@@ -9717,6 +9868,8 @@ ${memoryBlock}
             });
             document.getElementById('previewPromptBtn').addEventListener('click', previewPrompt);
             document.getElementById('resetCharacterBtn').addEventListener('click', resetCharacterCard);
+            document.getElementById('charaSlotSaveBtn').addEventListener('click', saveCharacterCardToSlot);
+            document.getElementById('charaSlotUseBtn').addEventListener('click', toggleCharaSlotPicker);
 
             elements.newConversationBtn.addEventListener('click', () => {
                 createConversation(state.activeCategoryId);
@@ -9781,8 +9934,7 @@ ${memoryBlock}
             elements.initialComposerPromptBtn.addEventListener('click', openConversationPromptEditor);
             elements.conversationPromptCancelBtn.addEventListener('click', closeConversationPromptEditor);
             elements.conversationPromptSaveBtn.addEventListener('click', saveConversationPrompt);
-            elements.conversationWorldInput.addEventListener('input', updateConversationPromptCount);
-            elements.conversationCharacterInput.addEventListener('input', updateConversationPromptCount);
+            if (elements.convCcResetBtn) elements.convCcResetBtn.addEventListener('click', resetConversationPromptCard);
             elements.conversationPromptOverlay.addEventListener('click', (event) => {
                 if (event.target === elements.conversationPromptOverlay) closeConversationPromptEditor();
             });
