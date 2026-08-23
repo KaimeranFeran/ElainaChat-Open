@@ -58,7 +58,7 @@ public class DocumentFilePlugin extends Plugin {
     }
 
     @ActivityCallback
-    private void exportCallback(PluginCall call, ActivityResult result) {
+    public void exportCallback(PluginCall call, ActivityResult result) {
         if (call == null) return;
         if (result == null || result.getResultCode() != android.app.Activity.RESULT_OK || result.getData() == null) {
             call.reject("cancelled");
@@ -100,7 +100,7 @@ public class DocumentFilePlugin extends Plugin {
     }
 
     @ActivityCallback
-    private void importCallback(PluginCall call, ActivityResult result) {
+    public void importCallback(PluginCall call, ActivityResult result) {
         if (call == null) return;
         if (result == null || result.getResultCode() != android.app.Activity.RESULT_OK || result.getData() == null) {
             call.reject("cancelled");
