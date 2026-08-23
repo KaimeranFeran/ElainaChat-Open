@@ -5056,9 +5056,52 @@ ${memoryBlock}
             return lines.join('\n');
         }
 
+        function getNativeDocumentFilePlugin() {
+            if (typeof window === 'undefined' || !window.Capacitor || !window.Capacitor.isNativePlatform || !window.Capacitor.isNativePlatform()) return null;
+            return window.Capacitor.Plugins && window.Capacitor.Plugins.DocumentFile || null;
+        }
+
+        function base64EncodeUtf8(text) {
+            const bytes = new TextEncoder().encode(String(text || ''));
+            let binary = '';
+            for (let i = 0; i < bytes.length; i += 1) binary += String.fromCharCode(bytes[i]);
+            return btoa(binary);
+        }
+
+        async function exportMemoryAsFileNative(payload, format) {
+            const plugin = getNativeDocumentFilePlugin();
+            if (!plugin || !plugin.exportFile) return false;
+            const title = ((payload.conversation && payload.conversation.title) || '记忆备份').replace(/[\\/:*?"<>|]/g, '_').slice(0, 30);
+            const stamp = new Date().toISOString().slice(0, 10);
+            const filename = `ElainaChat_记忆_${title}_${stamp}.${format === 'txt' ? 'txt' : 'json'}`;
+            const content = format === 'txt' ? memoryPayloadToText(payload) : JSON.stringify(payload, null, 2);
+            const mime = format === 'txt' ? 'text/plain' : 'application/json';
+            return plugin.exportFile({ filename, mime, data: base64EncodeUtf8(content) })
+                .then((result) => ({ ok: true, filename: (result && result.filename) || filename, uri: (result && result.uri) || '' }))
+                .catch((err) => { throw err; });
+        }
+
         function exportMemoryAsFile(payload, format) {
             const title = ((payload.conversation && payload.conversation.title) || '记忆备份').replace(/[\\/:*?"<>|]/g, '_').slice(0, 30);
             const stamp = new Date().toISOString().slice(0, 10);
+            const doNative = () => exportMemoryAsFileNative(payload, format);
+            if (getNativeDocumentFilePlugin()) {
+                doNative().then(ok => {
+                    if (ok) {
+                        const fname = ok.filename || `ElainaChat_记忆_${title}_${stamp}.${format === 'txt' ? 'txt' : 'json'}`;
+                        showCustomModal({
+                            title: '导出记忆',
+                            message: '记忆已保存到系统文件管理器。\n\n文件名：' + fname + '\n位置：已通过「保存文件」对话框选择。\n\n可在系统「文件管理」App 中查看该文件。',
+                            confirmText: '知道了',
+                            showCancel: false
+                        });
+                    } else { downloadTextFile(`ElainaChat_记忆_${title}_${stamp}.${format === 'txt' ? 'txt' : 'json'}`, format === 'txt' ? memoryPayloadToText(payload) : JSON.stringify(payload, null, 2)); showCustomAlert('记忆已导出。', '导出记忆'); }
+                }).catch(err => {
+                    downloadTextFile(`ElainaChat_记忆_${title}_${stamp}.${format === 'txt' ? 'txt' : 'json'}`, format === 'txt' ? memoryPayloadToText(payload) : JSON.stringify(payload, null, 2));
+                    showCustomAlert('导出完成（已使用备选保存方式）。', '导出记忆');
+                });
+                return;
+            }
             if (format === 'txt') downloadTextFile(`ElainaChat_记忆_${title}_${stamp}.txt`, memoryPayloadToText(payload));
             else downloadTextFile(`ElainaChat_记忆_${title}_${stamp}.json`, JSON.stringify(payload, null, 2));
             showCustomAlert('记忆已导出。', '导出记忆');
@@ -5188,8 +5231,38 @@ ${memoryBlock}
                   </div>
                 </div>`;
             bindMemoryOverlay(overlay);
-            overlay.querySelector('#memImportLocal').addEventListener('click', e => { e.stopPropagation(); closeMemoryOverlay(); ensureMemoryFileInput().click(); });
+            overlay.querySelector('#memImportLocal').addEventListener('click', e => { e.stopPropagation(); closeMemoryOverlay(); importMemoryFromLocal(); });
             overlay.querySelector('#memImportQr').addEventListener('click', e => { e.stopPropagation(); showMemoryQrScanModal(); });
+        }
+
+        function importMemoryFromLocal() {
+            if (getNativeDocumentFilePlugin()) {
+                importMemoryFromNative();
+            } else {
+                ensureMemoryFileInput().click();
+            }
+        }
+
+        function importMemoryFromNative() {
+            const plugin = getNativeDocumentFilePlugin();
+            if (!plugin || !plugin.importFile) { ensureMemoryFileInput().click(); return; }
+            plugin.importFile({ mime: 'application/json' })
+                .then(result => {
+                    const content = result && result.content;
+                    if (!content) return;
+                    try {
+                        const payload = JSON.parse(String(content));
+                        if (!payload || payload.kind !== MEMORY_BACKUP_KIND) throw new Error('不是记忆备份文件');
+                        handleImportedMemoryPayload(payload);
+                    } catch (err) {
+                        showCustomAlert('文件解析失败：' + ((err && err.message) || err), '导入记忆');
+                    }
+                })
+                .catch(err => {
+                    const msg = String((err && err.message) || err || '');
+                    if (msg.indexOf('cancelled') >= 0) return;
+                    showCustomAlert('读取文件失败：' + msg, '导入记忆');
+                });
         }
 
         function onMemoryFileChosen(evt) {
