@@ -1705,8 +1705,8 @@
         .modal-panel .btn-secondary:hover { color: var(--pixso-brown); background: var(--pixso-panel-soft); border-color: #cbb6ae; box-shadow: none; }
         #announcementOverlay,
         #conversationPromptOverlay { z-index: 1200 !important; }
-        .guide-modal-panel { width: min(92vw, 520px); max-height: min(86vh, 720px); overflow: hidden; }
-        .guide-modal-scroll { overflow-y: auto; padding: 22px 24px 18px; }
+        .guide-modal-panel { width: min(92vw, 520px); max-height: min(86vh, 720px); overflow: hidden; display: flex; flex-direction: column; }
+        .guide-modal-scroll { overflow-y: auto; padding: 22px 24px 18px; flex: 1 1 auto; min-height: 0; }
         .guide-eyebrow { color: var(--pixso-orange); font-size: 12px; font-weight: 700; }
         .guide-title { color: var(--pixso-brown-dark); font-size: 20px; line-height: 1.35; margin-top: 5px; }
         .guide-copy { color: var(--pixso-brown); font-size: 14px; line-height: 1.8; white-space: pre-wrap; margin-top: 14px; }
@@ -4991,7 +4991,7 @@ ${memoryBlock}
             if (memoryFileInput) return memoryFileInput;
             memoryFileInput = document.createElement('input');
             memoryFileInput.type = 'file';
-            memoryFileInput.accept = '.json,application/json';
+            memoryFileInput.accept = 'application/json,text/plain,application/octet-stream';
             memoryFileInput.style.display = 'none';
             memoryFileInput.addEventListener('change', onMemoryFileChosen);
             document.body.appendChild(memoryFileInput);
@@ -5085,7 +5085,15 @@ ${memoryBlock}
             const title = ((payload.conversation && payload.conversation.title) || '记忆备份').replace(/[\\/:*?"<>|]/g, '_').slice(0, 30);
             const stamp = new Date().toISOString().slice(0, 10);
             const doNative = () => exportMemoryAsFileNative(payload, format);
-            if (getNativeDocumentFilePlugin()) {
+            const hasCap = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+            const plugin = getNativeDocumentFilePlugin();
+            if (!hasCap) {
+                if (format === 'txt') downloadTextFile(`ElainaChat_记忆_${title}_${stamp}.txt`, memoryPayloadToText(payload));
+                else downloadTextFile(`ElainaChat_记忆_${title}_${stamp}.json`, JSON.stringify(payload, null, 2));
+                showCustomAlert('记忆已导出。', '导出记忆');
+                return;
+            }
+            if (plugin && plugin.exportFile) {
                 doNative().then(ok => {
                     if (ok) {
                         const fname = ok.filename || `ElainaChat_记忆_${title}_${stamp}.${format === 'txt' ? 'txt' : 'json'}`;
@@ -5102,9 +5110,7 @@ ${memoryBlock}
                 });
                 return;
             }
-            if (format === 'txt') downloadTextFile(`ElainaChat_记忆_${title}_${stamp}.txt`, memoryPayloadToText(payload));
-            else downloadTextFile(`ElainaChat_记忆_${title}_${stamp}.json`, JSON.stringify(payload, null, 2));
-            showCustomAlert('记忆已导出。', '导出记忆');
+            showCustomAlert('检测到原生环境，但未找到文件桥接插件（DocumentFile）。\n\nCapacitor: ' + (!!window.Capacitor) + '\nPlugins.DocumentFile: ' + (!!(window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.DocumentFile)) + '\n\n请把此提示截图反馈给开发者。', '导出记忆');
         }
 
         function makeQrDataUrl(text) {
@@ -5236,11 +5242,10 @@ ${memoryBlock}
         }
 
         function importMemoryFromLocal() {
-            if (getNativeDocumentFilePlugin()) {
-                importMemoryFromNative();
-            } else {
-                ensureMemoryFileInput().click();
-            }
+            // 与图片上传同一个机制：Android/Capacitor WebView 由系统处理 file input 唤起文件选择器
+            const input = ensureMemoryFileInput();
+            input.value = '';
+            input.click();
         }
 
         function importMemoryFromNative() {
@@ -5261,7 +5266,7 @@ ${memoryBlock}
                 .catch(err => {
                     const msg = String((err && err.message) || err || '');
                     if (msg.indexOf('cancelled') >= 0) return;
-                    showCustomAlert('读取文件失败：' + msg, '导入记忆');
+                    showCustomAlert('读取文件失败：\n' + msg + '\n\n(请截图反馈：是否弹出了系统文件选择器)', '导入记忆');
                 });
         }
 
