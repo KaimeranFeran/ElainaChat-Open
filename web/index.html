@@ -3126,6 +3126,7 @@
     </div>
 
     <input id="composerImageInput" type="file" accept="image/*" class="hidden" aria-hidden="true">
+    <input id="memoryFileInput" type="file" accept="application/json,text/plain,application/octet-stream" class="hidden" aria-hidden="true">
 
     <!-- 悬浮麦克风dock -->
     <div id="floatingMic" class="hidden fixed left-1/2 -translate-x-1/2 bottom-24 z-40">
@@ -4989,6 +4990,15 @@ ${memoryBlock}
 
         function ensureMemoryFileInput() {
             if (memoryFileInput) return memoryFileInput;
+            // 优先使用静态输入框（与图片上传同一个机制：元素在页面加载时就存在）
+            memoryFileInput = document.getElementById('memoryFileInput');
+            if (memoryFileInput) {
+                if (!memoryFileInput._bound) {
+                    memoryFileInput._bound = true;
+                    memoryFileInput.addEventListener('change', onMemoryFileChosen);
+                }
+                return memoryFileInput;
+            }
             memoryFileInput = document.createElement('input');
             memoryFileInput.type = 'file';
             memoryFileInput.accept = 'application/json,text/plain,application/octet-stream';
@@ -5076,9 +5086,13 @@ ${memoryBlock}
             const filename = `ElainaChat_记忆_${title}_${stamp}.${format === 'txt' ? 'txt' : 'json'}`;
             const content = format === 'txt' ? memoryPayloadToText(payload) : JSON.stringify(payload, null, 2);
             const mime = format === 'txt' ? 'text/plain' : 'application/json';
-            return plugin.exportFile({ filename, mime, data: base64EncodeUtf8(content) })
-                .then((result) => ({ ok: true, filename: (result && result.filename) || filename, uri: (result && result.uri) || '' }))
-                .catch((err) => { throw err; });
+            try {
+                return Promise.resolve(plugin.exportFile({ filename, mime, data: base64EncodeUtf8(content) }))
+                    .then((result) => ({ ok: true, filename: (result && result.filename) || filename, uri: (result && result.uri) || '' }))
+                    .catch((err) => { throw err; });
+            } catch (err) {
+                return Promise.reject(err);
+            }
         }
 
         function exportMemoryAsFile(payload, format) {
@@ -5110,7 +5124,11 @@ ${memoryBlock}
                 });
                 return;
             }
-            showCustomAlert('检测到原生环境，但未找到文件桥接插件（DocumentFile）。\n\nCapacitor: ' + (!!window.Capacitor) + '\nPlugins.DocumentFile: ' + (!!(window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.DocumentFile)) + '\n\n请把此提示截图反馈给开发者。', '导出记忆');
+            let pluginKeys = '';
+            try {
+                pluginKeys = Object.keys((window.Capacitor && window.Capacitor.Plugins) || {}).join(', ');
+            } catch (e) { pluginKeys = '(无法枚举)'; }
+            showCustomAlert('检测到原生环境，但未找到文件桥接插件（DocumentFile）。\n\nCapacitor: ' + (!!window.Capacitor) + '\nPlugins.DocumentFile: ' + (!!(window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.DocumentFile)) + '\n可用插件: ' + (pluginKeys || '无') + '\n\n请把此提示截图反馈给开发者。', '导出记忆');
         }
 
         function makeQrDataUrl(text) {
@@ -5232,12 +5250,15 @@ ${memoryBlock}
                   </div>
                   <div class="p-5 space-y-3">
                     <button id="memImportLocal" class="btn-primary text-sm w-full">从本地文件导入（JSON）</button>
+                    ${getNativeDocumentFilePlugin() ? '<button id="memImportNative" class="btn-secondary text-sm w-full">用系统文件管理器打开（原生）</button>' : ''}
                     <button id="memImportQr" class="btn-primary text-sm w-full">二维码互传（扫码导入）</button>
                     <button data-mem-close class="btn-secondary text-sm w-full">取消</button>
                   </div>
                 </div>`;
             bindMemoryOverlay(overlay);
             overlay.querySelector('#memImportLocal').addEventListener('click', e => { e.stopPropagation(); closeMemoryOverlay(); importMemoryFromLocal(); });
+            const nativeBtn = overlay.querySelector('#memImportNative');
+            if (nativeBtn) nativeBtn.addEventListener('click', e => { e.stopPropagation(); closeMemoryOverlay(); importMemoryFromNative(); });
             overlay.querySelector('#memImportQr').addEventListener('click', e => { e.stopPropagation(); showMemoryQrScanModal(); });
         }
 
