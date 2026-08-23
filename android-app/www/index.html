@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content">
     <title>ElainaChat Open · 伊蕾娜</title>
     <script src="/vendor/tailwind.js"></script>
+    <script src="/vendor/qrcode.js"></script>
+    <script src="/vendor/jsQR.js"></script>
     <style>
         @import url('https://cdn.jsdelivr.net/npm/@fontsource-variable/outfit@5.2.8/index.css');
         @import url('https://cdn.jsdelivr.net/npm/@fontsource/noto-sans-sc@5.2.8/chinese-simplified-400.css');
@@ -2815,9 +2817,15 @@
             </div>
 
             <div class="p-3 grid grid-cols-2 gap-2 flex-shrink-0">
-                <button id="newConversationBtn" class="btn-primary flex items-center justify-center gap-1.5 text-xs">
-                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg>
-                    新对话                </button>
+                <div class="flex gap-2">
+                    <button id="newConversationBtn" class="btn-primary flex-1 flex items-center justify-center gap-1.5 text-xs">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg>
+                        新对话                    </button>
+                    <button id="sidebarMemoryImportBtn" class="glass-button flex items-center justify-center gap-1 text-xs" title="导入记忆" aria-label="导入记忆">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
+                        导入
+                    </button>
+                </div>
                 <button id="newCategoryBtn" class="glass-button flex items-center justify-center gap-1.5 text-xs">
                     <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>
                     新文件夹
@@ -2926,6 +2934,14 @@
                                         <span class="composer-menu-hint">自动整理开启时也可再次执行</span>
                                     </span>
                                     <span id="initialComposerMemoryStatus" class="composer-memory-status hidden">整理中</span>
+                                </button>
+                                <button id="initialComposerExportMemoryBtn" type="button" class="composer-menu-row" role="menuitem">
+                                    <span class="composer-menu-icon"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg></span>
+                                    <span class="composer-menu-copy"><span class="composer-menu-title">导出记忆</span><span class="composer-menu-hint">全部 / 当前对话 / 多选消息 导出为 JSON·文本·二维码</span></span>
+                                </button>
+                                <button id="initialComposerImportMemoryBtn" type="button" class="composer-menu-row" role="menuitem">
+                                    <span class="composer-menu-icon"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg></span>
+                                    <span class="composer-menu-copy"><span class="composer-menu-title">导入记忆</span><span class="composer-menu-hint">从本地文件 / 二维码互传导入</span></span>
                                 </button>
                                 <button id="initialComposerPromptBtn" type="button" class="composer-menu-row" role="menuitem">
                                     <span class="composer-menu-icon">
@@ -3076,6 +3092,14 @@
                                     <span class="composer-menu-hint">自动整理开启时也可再次执行</span>
                                 </span>
                                     <span id="composerMemoryStatus" class="composer-memory-status hidden">整理中</span>
+                                </button>
+                                <button id="composerExportMemoryBtn" type="button" class="composer-menu-row" role="menuitem">
+                                    <span class="composer-menu-icon"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg></span>
+                                    <span class="composer-menu-copy"><span class="composer-menu-title">导出记忆</span><span class="composer-menu-hint">全部 / 当前对话 / 多选消息 导出为 JSON·文本·二维码</span></span>
+                                </button>
+                                <button id="composerImportMemoryBtn" type="button" class="composer-menu-row" role="menuitem">
+                                    <span class="composer-menu-icon"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg></span>
+                                    <span class="composer-menu-copy"><span class="composer-menu-title">导入记忆</span><span class="composer-menu-hint">从本地文件 / 二维码互传导入</span></span>
                                 </button>
                                 <button id="composerPromptBtn" type="button" class="composer-menu-row" role="menuitem">
                                     <span class="composer-menu-icon">
@@ -3369,6 +3393,11 @@
                         </div>
                     </div>
                     <p class="text-[11px] text-indigo-300 leading-relaxed">记忆整理会调用模型把当前对话总结为日记、约定、用户偏好、计划、动机与关键记忆，并注入后续回复的提示词。也可随时点击顶部金句旁的「整理记忆」手动触发。</p>
+                    <div class="flex items-center gap-2 mt-3 flex-wrap">
+                        <button id="settingExportMemoryBtn" class="btn-primary text-xs">导出全部记忆</button>
+                        <button id="settingImportMemoryBtn" class="btn-secondary text-xs">导入记忆</button>
+                    </div>
+                    <p class="text-[10px] text-indigo-300 leading-relaxed mt-2">可把记忆备份为 JSON / 文本 / 二维码，之后可导入合并或覆盖。</p>
                 </section>
             </div>
 
@@ -4925,6 +4954,358 @@ ${memoryBlock}
             }
         }
 
+        // ==================== 记忆导出 / 导入 ====================
+
+        const MEMORY_BACKUP_KIND = 'elainachat-memory-backup';
+        let memoryFileInput = null;
+        let qrScanStream = null;
+        let qrScanTimer = null;
+
+        function ensureMemoryFileInput() {
+            if (memoryFileInput) return memoryFileInput;
+            memoryFileInput = document.createElement('input');
+            memoryFileInput.type = 'file';
+            memoryFileInput.accept = '.json,application/json';
+            memoryFileInput.style.display = 'none';
+            memoryFileInput.addEventListener('change', onMemoryFileChosen);
+            document.body.appendChild(memoryFileInput);
+            return memoryFileInput;
+        }
+
+        function cloneMemoryCore() {
+            if (!state.memoryCore) return emptyMemoryCore();
+            return JSON.parse(JSON.stringify(state.memoryCore));
+        }
+
+        function normalizeMemoryCore(input) {
+            const out = emptyMemoryCore();
+            const src = input && typeof input === 'object' ? input : {};
+            ['diary', 'promise', 'preference', 'plan', 'motivation', 'pivotal_memory'].forEach(k => {
+                if (Array.isArray(src[k])) out[k] = src[k].slice();
+            });
+            return out;
+        }
+
+        function memoryStatsText() {
+            const mc = state.memoryCore || emptyMemoryCore();
+            const count = (mc.diary || []).length + (mc.promise || []).length + (mc.preference || []).length + (mc.plan || []).length + (mc.motivation || []).length + (mc.pivotal_memory || []).length;
+            return `日记 ${mc.diary.length} · 约定 ${mc.promise.length} · 偏好 ${mc.preference.length} · 计划 ${mc.plan.length} · 动机 ${mc.motivation.length} · 关键 ${mc.pivotal_memory.length}`;
+        }
+
+        function buildMemoryPayload(scope) {
+            const conv = currentConv();
+            const payload = { app: 'ElainaChat', kind: MEMORY_BACKUP_KIND, version: 1, exportedAt: new Date().toISOString(), scope };
+            if (scope === 'all' || scope === 'conversation') payload.memoryCore = cloneMemoryCore();
+            if (scope === 'conversation' && conv) payload.conversation = { id: conv.id, title: conv.title || '未命名' };
+            if (scope === 'selected') {
+                payload.messages = getSelectedMessages().map(m => ({ role: m.role, text: m.text || '', timestamp: m.timestamp || '' }));
+                payload.count = payload.messages.length;
+                if (conv) payload.conversation = { id: conv.id, title: conv.title || '未命名' };
+            }
+            return payload;
+        }
+
+        function memoryPayloadToText(payload) {
+            const name = (state.characterCard && state.characterCard.name) || '伊蕾娜';
+            const lines = [];
+            lines.push('ElainaChat 记忆导出');
+            lines.push('导出于：' + new Date().toLocaleString());
+            if (payload.conversation) lines.push('会话：' + (payload.conversation.title || '未命名'));
+            const mc = payload.memoryCore;
+            if (mc) {
+                lines.push('');
+                lines.push('==== 记忆内容 ====');
+                if (mc.diary && mc.diary.length) { lines.push('【日记】'); mc.diary.forEach(e => lines.push('  ' + (e && e.date || '') + ': ' + (e && e.content || ''))); }
+                if (mc.promise && mc.promise.length) { lines.push('【约定】'); mc.promise.forEach(s => lines.push('  ' + s)); }
+                if (mc.preference && mc.preference.length) { lines.push('【用户偏好】'); mc.preference.forEach(s => lines.push('  ' + s)); }
+                if (mc.plan && mc.plan.length) { lines.push('【计划】'); mc.plan.forEach(p => lines.push('  ' + (p && p.date ? p.date + ': ' : '') + (p && p.content || ''))); }
+                if (mc.motivation && mc.motivation.length) { lines.push('【长期目标】'); mc.motivation.forEach(s => lines.push('  ' + s)); }
+                if (mc.pivotal_memory && mc.pivotal_memory.length) { lines.push('【关键记忆】'); mc.pivotal_memory.forEach(s => lines.push('  ' + s)); }
+            }
+            if (payload.messages && payload.messages.length) {
+                lines.push('');
+                lines.push('==== 选中消息（' + payload.count + ' 条）====');
+                payload.messages.forEach(m => lines.push('  ' + (m.timestamp || '') + ' ' + (m.role === 'user' ? 'You' : name) + '：' + (m.text || '')));
+            }
+            return lines.join('\n');
+        }
+
+        function exportMemoryAsFile(payload, format) {
+            const title = ((payload.conversation && payload.conversation.title) || '记忆备份').replace(/[\\/:*?"<>|]/g, '_').slice(0, 30);
+            const stamp = new Date().toISOString().slice(0, 10);
+            if (format === 'txt') downloadTextFile(`ElainaChat_记忆_${title}_${stamp}.txt`, memoryPayloadToText(payload));
+            else downloadTextFile(`ElainaChat_记忆_${title}_${stamp}.json`, JSON.stringify(payload, null, 2));
+            showCustomAlert('记忆已导出。', '导出记忆');
+        }
+
+        function makeQrDataUrl(text) {
+            if (typeof qrcode !== 'function') throw new Error('二维码库未加载');
+            const qr = qrcode(0, 'M');
+            qr.addData(text);
+            qr.make();
+            return qr.createDataURL(6, 8);
+        }
+
+        function buildMemoryOverlay() {
+            closeMemoryOverlay();
+            const overlay = document.createElement('div');
+            overlay.id = 'memoryBackupOverlay';
+            overlay.className = 'fixed inset-0 z-[1000] p-4 modal-overlay';
+            overlay.style.display = 'flex';
+            overlay.style.position = 'fixed';
+            overlay.style.top = '0'; overlay.style.right = '0'; overlay.style.bottom = '0'; overlay.style.left = '0';
+            overlay.style.zIndex = '1000';
+            overlay.style.alignItems = 'center';
+            overlay.style.justifyContent = 'center';
+            document.body.appendChild(overlay);
+            return overlay;
+        }
+
+        function bindMemoryOverlay(overlay) {
+            overlay.addEventListener('click', e => { if (e.target === overlay) closeMemoryOverlay(); });
+            overlay.querySelectorAll('[data-mem-close]').forEach(btn => btn.addEventListener('click', e => { e.stopPropagation(); closeMemoryOverlay(); }));
+        }
+
+        function closeMemoryOverlay() {
+            stopQrCameraScan();
+            const o = document.getElementById('memoryBackupOverlay');
+            if (o) o.remove();
+        }
+
+        function showMemoryExportDialog(preferredScope) {
+            closeComposerToolsMenu();
+            closeMessageContextMenu();
+            const conv = currentConv();
+            const hasSelected = messageSelection.active && messageSelection.selectedIds.size > 0;
+            const scopes = [{ value: 'all', label: '全部记忆', info: memoryStatsText() }];
+            if (conv) scopes.push({ value: 'conversation', label: '当前对话记忆', info: conv.title || '未命名' });
+            if (hasSelected) scopes.push({ value: 'selected', label: '已选消息（' + messageSelection.selectedIds.size + ' 条）', info: '导出选中的消息为记忆' });
+            const initialScope = preferredScope && scopes.some(s => s.value === preferredScope) ? preferredScope : scopes[0].value;
+            const overlay = buildMemoryOverlay();
+            overlay.innerHTML = `
+                <div class="modal-panel w-full max-w-xs flex flex-col overflow-hidden animate-modal-pop">
+                  <div class="flex items-center gap-3 px-5 py-4 border-b border-white/60">
+                    <div class="text-base font-bold text-indigo-950">导出记忆</div>
+                    <button data-mem-close class="ml-auto p-1.5 rounded-lg hover:bg-white/60"><svg class="w-4 h-4 text-indigo-400" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 18L18 6M6 6l12 12"/></svg></button>
+                  </div>
+                  <div class="p-5 space-y-4">
+                    <div class="space-y-2">
+                      <div class="text-xs text-indigo-500 mb-1">导出范围</div>
+                      ${scopes.map(s => `<label class="flex items-center gap-2 text-xs text-indigo-700 cursor-pointer"><input type="radio" name="memScope" value="${s.value}" class="accent-pink-500" ${s.value === initialScope ? 'checked' : ''}> ${s.label}<span class="text-[10px] text-indigo-300">${s.info}</span></label>`).join('')}
+                      ${!hasSelected ? `<button data-mem-multiselect class="text-xs text-indigo-500 hover:text-indigo-700 underline underline-offset-2">去多选消息导出…</button>` : ''}
+                    </div>
+                    <div class="space-y-2">
+                      <div class="text-xs text-indigo-500 mb-1">导出格式</div>
+                      <label class="flex items-center gap-2 text-xs text-indigo-700 cursor-pointer"><input type="radio" name="memFormat" value="json" class="accent-pink-500" checked> JSON 备份（可再导入）</label>
+                      <label class="flex items-center gap-2 text-xs text-indigo-700 cursor-pointer"><input type="radio" name="memFormat" value="txt" class="accent-pink-500"> 纯文本（人可读）</label>
+                      <label class="flex items-center gap-2 text-xs text-indigo-700 cursor-pointer"><input type="radio" name="memFormat" value="qr" class="accent-pink-500"> 二维码（互传）</label>
+                    </div>
+                    <button id="memExportGo" class="btn-primary text-sm w-full">导出</button>
+                    <button data-mem-close class="btn-secondary text-sm w-full">取消</button>
+                  </div>
+                </div>`;
+            bindMemoryOverlay(overlay);
+            const multi = overlay.querySelector('[data-mem-multiselect]');
+            if (multi) multi.addEventListener('click', e => { e.stopPropagation(); closeMemoryOverlay(); enterMessageSelection(); });
+            overlay.querySelector('#memExportGo').addEventListener('click', e => {
+                e.stopPropagation();
+                const scope = overlay.querySelector('input[name="memScope"]:checked').value;
+                const format = overlay.querySelector('input[name="memFormat"]:checked').value;
+                closeMemoryOverlay();
+                doMemoryExport(scope, format);
+            });
+        }
+
+        function doMemoryExport(scope, format) {
+            const payload = buildMemoryPayload(scope);
+            if (scope === 'selected' && (!payload.messages || !payload.messages.length)) { showCustomAlert('还没有选择消息。', '导出记忆'); return; }
+            if (format === 'qr') showMemoryQrExportModal(payload);
+            else exportMemoryAsFile(payload, format);
+        }
+
+        function showMemoryQrExportModal(payload) {
+            const text = JSON.stringify(payload);
+            let dataUrl;
+            try { dataUrl = makeQrDataUrl(text); }
+            catch (e) { showCustomAlert('记忆内容过大，二维码放不下。请改用「文件」方式导出。', '导出记忆'); return; }
+            const overlay = buildMemoryOverlay();
+            overlay.innerHTML = `
+                <div class="modal-panel w-full max-w-sm max-h-[85vh] flex flex-col overflow-hidden animate-modal-pop">
+                  <div class="flex items-center gap-3 px-5 py-4 border-b border-white/60">
+                    <div class="text-base font-bold text-indigo-950">二维码导出记忆</div>
+                    <button data-mem-close class="ml-auto p-1.5 rounded-lg hover:bg-white/60"><svg class="w-4 h-4 text-indigo-400" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 18L18 6M6 6l12 12"/></svg></button>
+                  </div>
+                  <div class="p-5 overflow-y-auto text-center">
+                    <img src="${dataUrl}" alt="记忆二维码" class="mx-auto w-56 h-56 rounded-lg border border-white/40 bg-white p-1">
+                    <p class="text-xs text-indigo-500 mt-3">让对方在「导入记忆 → 二维码互传」里扫码即可接收。</p>
+                    <p class="text-[11px] text-indigo-300 mt-1">${payload.scope === 'selected' ? '已选 ' + payload.count + ' 条消息' : payload.scope === 'conversation' ? '当前对话记忆' : '全部记忆'}</p>
+                    <button data-mem-close class="btn-secondary text-sm w-full mt-3">关闭</button>
+                  </div>
+                </div>`;
+            bindMemoryOverlay(overlay);
+        }
+
+        function showMemoryImportDialog() {
+            closeComposerToolsMenu();
+            closeMessageContextMenu();
+            const overlay = buildMemoryOverlay();
+            overlay.innerHTML = `
+                <div class="modal-panel w-full max-w-xs flex flex-col overflow-hidden animate-modal-pop">
+                  <div class="flex items-center gap-3 px-5 py-4 border-b border-white/60">
+                    <div class="text-base font-bold text-indigo-950">导入记忆</div>
+                    <button data-mem-close class="ml-auto p-1.5 rounded-lg hover:bg-white/60"><svg class="w-4 h-4 text-indigo-400" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 18L18 6M6 6l12 12"/></svg></button>
+                  </div>
+                  <div class="p-5 space-y-3">
+                    <button id="memImportLocal" class="btn-primary text-sm w-full">从本地文件导入（JSON）</button>
+                    <button id="memImportQr" class="btn-primary text-sm w-full">二维码互传（扫码导入）</button>
+                    <button data-mem-close class="btn-secondary text-sm w-full">取消</button>
+                  </div>
+                </div>`;
+            bindMemoryOverlay(overlay);
+            overlay.querySelector('#memImportLocal').addEventListener('click', e => { e.stopPropagation(); closeMemoryOverlay(); ensureMemoryFileInput().click(); });
+            overlay.querySelector('#memImportQr').addEventListener('click', e => { e.stopPropagation(); showMemoryQrScanModal(); });
+        }
+
+        function onMemoryFileChosen(evt) {
+            const file = evt.target.files && evt.target.files[0];
+            evt.target.value = '';
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = () => {
+                try {
+                    const payload = JSON.parse(String(reader.result));
+                    if (!payload || payload.kind !== MEMORY_BACKUP_KIND) throw new Error('不是记忆备份文件');
+                    handleImportedMemoryPayload(payload);
+                } catch (e) { showCustomAlert('文件解析失败：' + (e && e.message || e), '导入记忆'); }
+            };
+            reader.readAsText(file, 'utf-8');
+        }
+
+        function showMemoryQrScanModal() {
+            const overlay = buildMemoryOverlay();
+            overlay.innerHTML = `
+                <div class="modal-panel w-full max-w-sm max-h-[85vh] flex flex-col overflow-hidden animate-modal-pop">
+                  <div class="flex items-center gap-3 px-5 py-4 border-b border-white/60">
+                    <div class="text-base font-bold text-indigo-950">二维码导入记忆</div>
+                    <button data-mem-close class="ml-auto p-1.5 rounded-lg hover:bg-white/60"><svg class="w-4 h-4 text-indigo-400" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 18L18 6M6 6l12 12"/></svg></button>
+                  </div>
+                  <div class="p-5">
+                    <div class="relative w-full aspect-square overflow-hidden rounded-lg border border-white/40 bg-black">
+                      <video id="memQrVideo" class="absolute inset-0 w-full h-full object-cover" playsinline muted></video>
+                      <canvas id="memQrCanvas" class="hidden"></canvas>
+                      <div class="absolute inset-0 pointer-events-none flex items-center justify-center"><div class="w-56 h-56 border-2 border-white/70 rounded-xl"></div></div>
+                    </div>
+                    <p class="text-xs text-indigo-500 mt-3 text-center">将对方二维码放入框内</p>
+                    <p class="text-[11px] text-indigo-300 mt-1 text-center" id="memQrStatus">正在启动相机…</p>
+                    <button data-mem-close class="btn-secondary text-sm w-full mt-3">取消</button>
+                  </div>
+                </div>`;
+            bindMemoryOverlay(overlay);
+            startQrCameraScan();
+        }
+
+        async function startQrCameraScan() {
+            const video = document.getElementById('memQrVideo');
+            const status = document.getElementById('memQrStatus');
+            if (!video || !status) return;
+            if (typeof jsQR !== 'function') { status.textContent = '扫码库未加载，请检查网络。'; return; }
+            try {
+                qrScanStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
+                video.srcObject = qrScanStream;
+                await video.play();
+                status.textContent = '对准二维码开始扫描…';
+                const canvas = document.getElementById('memQrCanvas');
+                const ctx = canvas.getContext('2d', { willReadFrequently: true });
+                qrScanTimer = window.setInterval(() => {
+                    if (video.readyState < 2) return;
+                    const w = video.videoWidth, h = video.videoHeight;
+                    if (!w || !h) return;
+                    canvas.width = w; canvas.height = h;
+                    ctx.drawImage(video, 0, 0, w, h);
+                    const imageData = ctx.getImageData(0, 0, w, h);
+                    const code = jsQR(imageData.data, w, h, { inversionAttempts: 'dontInvert' });
+                    if (code && code.data) {
+                        stopQrCameraScan();
+                        status.textContent = '识别成功，正在导入…';
+                        try {
+                            const payload = JSON.parse(code.data);
+                            handleImportedMemoryPayload(payload);
+                        } catch (e) { showCustomAlert('二维码内容不是有效的记忆备份。', '导入记忆'); closeMemoryOverlay(); }
+                    }
+                }, 240);
+            } catch (e) {
+                status.textContent = '无法启动相机：' + ((e && e.message) || e);
+            }
+        }
+
+        function stopQrCameraScan() {
+            if (qrScanTimer) { clearInterval(qrScanTimer); qrScanTimer = null; }
+            if (qrScanStream) { qrScanStream.getTracks().forEach(t => t.stop()); qrScanStream = null; }
+            const video = document.getElementById('memQrVideo');
+            if (video) video.srcObject = null;
+        }
+
+        function handleImportedMemoryPayload(payload) {
+            if (!payload || payload.kind !== MEMORY_BACKUP_KIND) { showCustomAlert('这不是有效的记忆备份。', '导入记忆'); return; }
+            const hasMemory = Boolean(payload.memoryCore);
+            const hasMessages = Array.isArray(payload.messages) && payload.messages.length > 0;
+            if (!hasMemory && !hasMessages) { showCustomAlert('备份里没有可导入的记忆内容。', '导入记忆'); return; }
+            const overlay = buildMemoryOverlay();
+            const desc = hasMessages ? '含 ' + payload.messages.length + ' 条选中消息' : '';
+            overlay.innerHTML = `
+                <div class="modal-panel w-full max-w-xs flex flex-col overflow-hidden animate-modal-pop">
+                  <div class="flex items-center gap-3 px-5 py-4 border-b border-white/60">
+                    <div class="text-base font-bold text-indigo-950">导入记忆</div>
+                    <button data-mem-close class="ml-auto p-1.5 rounded-lg hover:bg-white/60"><svg class="w-4 h-4 text-indigo-400" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 18L18 6M6 6l12 12"/></svg></button>
+                  </div>
+                  <div class="p-5 space-y-3">
+                    <p class="text-xs text-indigo-500 leading-relaxed">这份备份包含${hasMemory ? '记忆数据' : ''}${hasMemory && hasMessages ? ' 与 ' : ''}${desc}。${hasMessages ? '选中消息会并入「日记」记忆。' : ''}</p>
+                    <button data-mem-apply="merge" class="btn-primary text-sm w-full">合并导入（保留现有，叠加去重）</button>
+                    <button data-mem-apply="overwrite" class="btn-secondary text-sm w-full">覆盖导入（替换现有记忆）</button>
+                    <button data-mem-close class="btn-secondary text-sm w-full">取消</button>
+                  </div>
+                </div>`;
+            bindMemoryOverlay(overlay);
+            overlay.querySelectorAll('[data-mem-apply]').forEach(btn => btn.addEventListener('click', e => { e.stopPropagation(); applyMemoryBackup(payload, btn.dataset.memApply); closeMemoryOverlay(); }));
+        }
+
+        function dedupeMemoryObj(arr, keyFn) {
+            const seen = new Set(); const out = [];
+            (arr || []).forEach(e => { const k = String(keyFn(e) || ''); if (!seen.has(k)) { seen.add(k); out.push(e); } });
+            return out;
+        }
+
+        function mergeMemoryCore(dst, src) {
+            const dedupeStr = arr => Array.from(new Set(arr || []));
+            dst.promise = dedupeStr((dst.promise || []).concat(src.promise || []));
+            dst.preference = dedupeStr((dst.preference || []).concat(src.preference || []));
+            dst.motivation = dedupeStr((dst.motivation || []).concat(src.motivation || []));
+            dst.pivotal_memory = dedupeStr((dst.pivotal_memory || []).concat(src.pivotal_memory || []));
+            dst.plan = dedupeMemoryObj((dst.plan || []).concat(src.plan || []), e => (e && e.date) + '|' + (e && e.content));
+            dst.diary = dedupeMemoryObj((dst.diary || []).concat(src.diary || []), e => (e && e.date) + '|' + (e && e.content));
+        }
+
+        function applyMemoryBackup(payload, mode) {
+            if (!state.memoryCore) state.memoryCore = emptyMemoryCore();
+            let note = '';
+            if (payload.memoryCore) {
+                if (mode === 'overwrite') { state.memoryCore = normalizeMemoryCore(payload.memoryCore); note = '已用导入内容替换现有记忆。'; }
+                else { mergeMemoryCore(state.memoryCore, normalizeMemoryCore(payload.memoryCore)); note = '已合并导入记忆。'; }
+            }
+            if (Array.isArray(payload.messages) && payload.messages.length) {
+                const name = (state.characterCard && state.characterCard.name) || '伊蕾娜';
+                const content = '对话摘录' + (payload.conversation && payload.conversation.title ? '（' + payload.conversation.title + '）' : '') + '\n' +
+                    payload.messages.map(m => (m.role === 'user' ? 'You' : name) + '：' + (m.text || '')).join('\n');
+                state.memoryCore.diary = state.memoryCore.diary || [];
+                state.memoryCore.diary.push({ date: todayDateStr(), content, essences: [] });
+                note += (note ? ' ' : '') + '已把选中消息并入日记记忆。';
+            }
+            saveMemoryCore();
+            if (typeof renderFolderList === 'function') renderFolderList();
+            updateUI();
+            showCustomAlert(note || '记忆已导入。', '导入记忆');
+        }
+
         function todayDateStr() {
             const d = new Date();
             return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`;
@@ -5672,6 +6053,7 @@ ${memoryBlock}
                 bar.innerHTML = `
                     <span class="sel-count">已选 0 条</span>
                     <button class="primary" type="button" onclick="exportSelectedMessages()">导出为txt</button>
+                    <button type="button" onclick="showMemoryExportDialog('selected')">导出记忆</button>
                     <button type="button" onclick="exitMessageSelection()">取消</button>
                 `;
                 document.body.appendChild(bar);
@@ -9388,6 +9770,13 @@ ${memoryBlock}
             elements.composerThinkingToggle.addEventListener('change', () => updateThinkingMode(elements.composerThinkingToggle.checked));
             elements.initialComposerMemoryBtn.addEventListener('click', runManualMemorySummary);
             elements.composerMemoryBtn.addEventListener('click', runManualMemorySummary);
+            elements.initialComposerExportMemoryBtn?.addEventListener('click', () => showMemoryExportDialog('all'));
+            elements.initialComposerImportMemoryBtn?.addEventListener('click', () => showMemoryImportDialog());
+            elements.composerExportMemoryBtn?.addEventListener('click', () => showMemoryExportDialog('all'));
+            elements.composerImportMemoryBtn?.addEventListener('click', () => showMemoryImportDialog());
+            elements.sidebarMemoryImportBtn?.addEventListener('click', (e) => { e.stopPropagation(); showMemoryImportDialog(); });
+            document.getElementById('settingExportMemoryBtn')?.addEventListener('click', () => showMemoryExportDialog('all'));
+            document.getElementById('settingImportMemoryBtn')?.addEventListener('click', () => showMemoryImportDialog());
             elements.composerPromptBtn.addEventListener('click', openConversationPromptEditor);
             elements.initialComposerPromptBtn.addEventListener('click', openConversationPromptEditor);
             elements.conversationPromptCancelBtn.addEventListener('click', closeConversationPromptEditor);
