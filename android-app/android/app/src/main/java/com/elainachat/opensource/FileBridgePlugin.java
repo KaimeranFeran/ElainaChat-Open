@@ -1,7 +1,11 @@
 package com.elainachat.opensource;
 
 import android.Manifest;
+import androidx.activity.result.ActivityResult;
 import android.content.ContentResolver;
+import android.app.Activity;
+import android.content.Intent;
+
 import android.content.ContentValues;
 import android.database.Cursor;
 import android.net.Uri;
@@ -16,6 +20,7 @@ import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.util.PermissionHelper;
+import com.getcapacitor.annotation.ActivityCallback;
 import com.getcapacitor.annotation.CapacitorPlugin;
 import com.getcapacitor.annotation.Permission;
 import com.getcapacitor.annotation.PermissionCallback;
@@ -58,6 +63,108 @@ public class FileBridgePlugin extends Plugin {
     private String pendingSaveFilename;
     private String pendingSaveMime;
     private byte[] pendingSaveBytes;
+    private byte[] pendingExportBytes;
+    private String pendingExportName;
+
+    @PluginMethod
+    public void exportFile(PluginCall call) {
+        String filename = call.getString("filename", "export.txt");
+        String mime = call.getString("mime", "application/octet-stream");
+        String data = call.getString("data", "");
+        byte[] bytes = decodeBytes(data);
+        if (bytes == null) {
+            call.reject("数据解码失败");
+            return;
+        }
+        this.pendingExportBytes = bytes;
+        this.pendingExportName = filename;
+        Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType(mime);
+        intent.putExtra(Intent.EXTRA_TITLE, filename);
+        // 没有可用的文件管理器（如精简 AOSP 无 DocumentsUI）时立即失败，让 JS 走插件直存
+        if (intent.resolveActivity(getContext().getPackageManager()) == null) {
+            call.reject("no-file-manager");
+            return;
+        }
+        startActivityForResult(call, intent, "exportCallback");
+    }
+
+    @ActivityCallback
+    public void exportCallback(PluginCall call, ActivityResult result) {
+        if (call == null) return;
+        if (result == null || result.getResultCode() != Activity.RESULT_OK || result.getData() == null) {
+            call.reject("cancelled");
+            clearPendingExport();
+            return;
+        }
+        Uri uri = result.getData().getData();
+        if (uri == null) {
+            call.reject("no-uri");
+            clearPendingExport();
+            return;
+        }
+        String name = pendingExportName != null ? pendingExportName : "export.txt";
+        byte[] bytes = pendingExportBytes != null ? pendingExportBytes : new byte[0];
+        try (OutputStream out = getContext().getContentResolver().openOutputStream(uri, "w")) {
+            if (out == null) throw new Exception("无法打开输出流");
+            out.write(bytes);
+            out.flush();
+            JSObject ret = new JSObject();
+            ret.put("success", true);
+            ret.put("filename", name);
+            ret.put("uri", uri.toString());
+            call.resolve(ret);
+        } catch (Exception error) {
+            call.reject("write-failed:" + error.getMessage());
+        } finally {
+            clearPendingExport();
+        }
+    }
+
+    @PluginMethod
+    public void importFile(PluginCall call) {
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("*/*");
+        if (intent.resolveActivity(getContext().getPackageManager()) == null) {
+            call.reject("no-file-manager");
+            return;
+        }
+        startActivityForResult(call, intent, "importCallback");
+    }
+
+    @ActivityCallback
+    public void importCallback(PluginCall call, ActivityResult result) {
+        if (call == null) return;
+        if (result == null || result.getResultCode() != Activity.RESULT_OK || result.getData() == null) {
+            call.reject("cancelled");
+            return;
+        }
+        Uri uri = result.getData().getData();
+        if (uri == null) {
+            call.reject("no-uri");
+            return;
+        }
+        try (InputStream in = getContext().getContentResolver().openInputStream(uri)) {
+            if (in == null) throw new Exception("无法打开输入流");
+            ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+            byte[] temp = new byte[8192];
+            int read;
+            while ((read = in.read(temp)) != -1) buffer.write(temp, 0, read);
+            JSObject ret = new JSObject();
+            ret.put("name", queryDisplayName(uri));
+            ret.put("content", new String(buffer.toByteArray(), StandardCharsets.UTF_8));
+            call.resolve(ret);
+        } catch (Exception error) {
+            call.reject("read-failed:" + error.getMessage());
+        }
+    }
+
+    private void clearPendingExport() {
+        pendingExportBytes = null;
+        pendingExportName = null;
+    }
 
     @PluginMethod
     public void saveFile(PluginCall call) {

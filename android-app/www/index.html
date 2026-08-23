@@ -3409,6 +3409,16 @@
                     </div>
                     <p class="text-[10px] text-indigo-300 leading-relaxed mt-2">可把记忆备份为 JSON / 文本 / 二维码，之后可导入合并或覆盖。</p>
                 </section>
+
+                <section>
+                    <div class="modal-label flex items-center gap-2"><span class="text-sky-500">✦</span> 日志与错误报告 <span class="text-[10px] text-indigo-300">(构建 ' + MEMORY_BUILD_TAG + ')</span></div>
+                    <p class="text-[11px] text-indigo-300 leading-relaxed">记录启动信息、点击操作、插件调用与错误。遇到问题请先「导出日志」把文件发给开发者。</p>
+                    <div class="flex items-center gap-2 mt-3 flex-wrap">
+                        <button id="settingLogsBtn" class="btn-primary text-xs">查看日志</button>
+                        <button id="settingExportLogsBtn" class="btn-secondary text-xs">导出日志</button>
+                        <button id="settingClearLogsBtn" class="btn-secondary text-xs">清空日志</button>
+                    </div>
+                </section>
             </div>
 
             <div class="flex items-center justify-end gap-2 px-6 py-4 border-t border-white/60 flex-shrink-0">
@@ -3474,6 +3484,7 @@
             </div>
             <div class="px-6 py-4 border-t border-white/60 flex justify-end">
                 <button id="announcementConfirmBtn" type="button" class="btn-primary text-sm">我知道了</button>
+                <button id="announcementSkipBtn" type="button" class="btn-secondary text-sm">暂不输入，先进入</button>
             </div>
         </div>
     </div>
@@ -4873,6 +4884,11 @@ ${memoryBlock}
 
         function openAnnouncement() {
             const announcement = state.announcement || { title: '欢迎使用独立开源版', content: '本版本不连接作者服务器，所有 API 均由用户自行配置。' };
+            // 修复：同一版本公告只看一次；且永远不允许遮罩层困住用户
+            const ackVersion = (announcement && announcement.version) || 'local';
+            try {
+                if (localStorage.getItem('elaina_announcement_ack') === ackVersion) return;
+            } catch (e) {}
             elements.announcementTitle.textContent = announcement.title;
             elements.announcementContent.textContent = announcement.content;
             const firstInstall = isFirstInstall();
@@ -4905,6 +4921,14 @@ ${memoryBlock}
                 }
                 persistSettings();
             }
+            dismissAnnouncement();
+        }
+
+        function dismissAnnouncement() {
+            try {
+                const announcement = state.announcement || {};
+                localStorage.setItem('elaina_announcement_ack', String((announcement && announcement.version) || 'local'));
+            } catch (e) {}
             elements.announcementOverlay.classList.add('hidden');
             elements.announcementOverlay.classList.remove('flex');
         }
@@ -4984,12 +5008,89 @@ ${memoryBlock}
         // ==================== 记忆导出 / 导入 ====================
 
         const MEMORY_BACKUP_KIND = 'elainachat-memory-backup';
-        const MEMORY_BUILD_TAG = '20260823-v3';
+        const MEMORY_BUILD_TAG = '20260823-v4';
         let memoryFileInput = null;
         let qrScanStream = null;
         let qrScanTimer = null;
         let memoryFilePickedAt = 0;
         let memoryFileWatchTimer = null;
+
+        // ==================== 日志与错误报告（独立功能，见设置页） ====================
+        const APP_LOG_KEY = 'elaina_open_app_logs_v4';
+        const APP_LOG_MAX = 600;
+        function appLog(level, text) {
+            try {
+                const arr = JSON.parse(localStorage.getItem(APP_LOG_KEY) || '[]');
+                arr.push({ t: new Date().toISOString(), level: level, text: String(text).slice(0, 2000) });
+                while (arr.length > APP_LOG_MAX) arr.shift();
+                localStorage.setItem(APP_LOG_KEY, JSON.stringify(arr));
+            } catch (e) {}
+        }
+        function getAppLogs() {
+            try { return JSON.parse(localStorage.getItem(APP_LOG_KEY) || '[]'); } catch (e) { return []; }
+        }
+        function clearAppLogs() {
+            try { localStorage.removeItem(APP_LOG_KEY); } catch (e) {}
+            appLog('info', '日志已清空');
+        }
+        (function initAppLogSystem() {
+            appLog('info', '启动 | 构建=' + MEMORY_BUILD_TAG + ' | UA=' + String(navigator.userAgent));
+            try {
+                const cap = window.Capacitor;
+                appLog('info', 'Capacitor=' + (!!cap) + ' | platform=' + (cap && cap.getPlatform ? cap.getPlatform() : 'web') + ' | androidBridge=' + (!!window.androidBridge));
+                const keys = Object.keys((cap && cap.Plugins) || {});
+                appLog('info', 'Plugins[' + keys.length + '] = ' + keys.join(','));
+            } catch (e) { appLog('warn', '插件枚举失败: ' + (e && e.message)); }
+            const oldErr = window.console.error;
+            window.console.error = function () {
+                try {
+                    const msg = Array.prototype.map.call(arguments, a => { try { return typeof a === 'string' ? a : JSON.stringify(a); } catch (e) { return String(a); } }).join(' ').slice(0, 1500);
+                    appLog('error', 'console.error: ' + msg);
+                } catch (e) {}
+                if (oldErr) oldErr.apply(window.console, arguments);
+            };
+            window.addEventListener('error', e => appLog('error', 'window.onerror: ' + (e && e.message) + ' @' + ((e && e.filename) || '') + ':' + ((e && e.lineno) || '')));
+            window.addEventListener('unhandledrejection', e => appLog('error', 'unhandledrejection: ' + ((e && e.reason && (e.reason.message || String(e.reason))) || '')));
+        })();
+
+        let memToastTimer = null;
+        function memShowToast(text) {
+            try {
+                let t = document.getElementById('memAppToast');
+                if (!t) {
+                    t = document.createElement('div');
+                    t.id = 'memAppToast';
+                    t.style.cssText = 'position:fixed;left:50%;top:12%;transform:translateX(-50%);z-index:99999;background:rgba(30,27,75,0.92);color:#fff;padding:10px 16px;border-radius:12px;font-size:13px;max-width:86vw;box-shadow:0 8px 24px rgba(0,0,0,0.35);pointer-events:none;opacity:0;transition:opacity .2s;';
+                    document.body.appendChild(t);
+                }
+                t.textContent = text;
+                t.style.opacity = '1';
+                window.clearTimeout(memToastTimer);
+                memToastTimer = window.setTimeout(() => { t.style.opacity = '0'; }, 2400);
+            } catch (e) {}
+        }
+        (function ensureTapFeedbackCss() {
+            if (document.getElementById('memTapCss')) return;
+            const s = document.createElement('style');
+            s.id = 'memTapCss';
+            s.textContent = '.tap-flash{animation:tapFlash .45s ease;}@keyframes tapFlash{0%{transform:scale(1)}30%{transform:scale(.9)}100%{transform:scale(1)}}';
+            document.head.appendChild(s);
+        })();
+        function guardedMemoryOpen(label, fn) {
+            try {
+                const el = document.activeElement;
+                if (el && el.classList && el.classList.add) {
+                    el.classList.add('tap-flash');
+                    window.setTimeout(() => { if (el && el.classList) el.classList.remove('tap-flash'); }, 500);
+                }
+            } catch (e) {}
+            appLog('info', '点击「' + label + '」');
+            memShowToast('已点击：' + label + ' …');
+            try { fn(); } catch (e) {
+                appLog('error', label + ' 打开失败: ' + (e && e.message));
+                memShowToast(label + ' 打开失败：' + ((e && e.message) || e));
+            }
+        }
 
         function ensureMemoryFileInput() {
             if (memoryFileInput) return memoryFileInput;
@@ -5085,19 +5186,38 @@ ${memoryBlock}
         async function exportMemoryAsFileNative(payload, format) {
             const plugin = getNativeDocumentFilePlugin();
             if (!plugin) return false;
-            const saveFn = plugin.saveFile || plugin.exportFile;
-            if (!saveFn) return false;
             const title = ((payload.conversation && payload.conversation.title) || '记忆备份').replace(/[\\/:*?"<>|]/g, '_').slice(0, 30);
             const stamp = new Date().toISOString().slice(0, 10);
             const filename = `ElainaChat_记忆_${title}_${stamp}.${format === 'txt' ? 'txt' : 'json'}`;
             const content = format === 'txt' ? memoryPayloadToText(payload) : JSON.stringify(payload, null, 2);
             const mime = format === 'txt' ? 'text/plain' : 'application/json';
-            try {
-                const result = await Promise.resolve(saveFn.call(plugin, { filename, mime, data: base64EncodeUtf8(content) }));
-                return { ok: true, filename: (result && result.filename) || filename, uri: (result && result.uri) || '', location: (result && result.location) || '' };
-            } catch (err) {
-                throw err;
+            const data = base64EncodeUtf8(content);
+            // 1) 先试系统「另存为」（文件管理器）；调不动（无 DocumentsUI / ActivityNotFound）会自动快速失败
+            if (plugin.exportFile) {
+                const startTs = Date.now();
+                try {
+                    const result = await Promise.resolve(plugin.exportFile({ filename, mime, data }));
+                    appLog('info', '导出-系统另存为成功: ' + filename);
+                    return { ok: true, via: 'picker', filename: (result && result.filename) || filename, uri: (result && result.uri) || '', location: (result && result.location) || '' };
+                } catch (err) {
+                    const msg = String((err && err.message) || err || '');
+                    const fast = (Date.now() - startTs) < 2000;
+                    appLog('warn', '导出-系统另存为失败(' + (fast ? '快速失败->文件管理器不可用' : '慢失败') + '): ' + msg);
+                    if (msg.toLowerCase().indexOf('cancel') >= 0 && !fast) {
+                        appLog('info', '导出-用户取消另存为');
+                        throw new Error('USER_CANCELLED');
+                    }
+                    if (fast) memShowToast('系统文件管理器不可用，自动改存到「下载」…');
+                    else memShowToast('另存为失败，自动改存到「下载」…');
+                }
             }
+            // 2) 插件直存「下载」目录（无系统对话框）
+            if (plugin.saveFile) {
+                const result = await Promise.resolve(plugin.saveFile({ filename, mime, data }));
+                appLog('info', '导出-直存下载成功: ' + filename + ' 位置=' + (result && result.location));
+                return { ok: true, via: 'download', filename: (result && result.filename) || filename, uri: (result && result.uri) || '', location: (result && result.location) || '' };
+            }
+            return false;
         }
 
         function exportMemoryAsFile(payload, format) {
@@ -5126,9 +5246,11 @@ ${memoryBlock}
                     } else { downloadTextFile(fname, content); showCustomAlert('记忆已导出（下载方式）。', '导出记忆'); }
                 }).catch(err => {
                     const msg = String((err && err.message) || err || '');
-                    if (msg.toLowerCase().indexOf('cancel') >= 0) return; // 用户取消，静默
-                    downloadTextFile(fname, content);
-                    showCustomAlert('原生保存失败：\n' + msg + '\n\n已尝试用「下载」方式保存。\n（请截图本提示反馈给开发者）', '导出记忆');
+                    if (msg.indexOf('USER_CANCELLED') >= 0) { appLog('info', '导出-用户取消（不兜底）'); return; }
+                    if (msg.toLowerCase().indexOf('cancel') >= 0) { appLog('info', '导出-取消'); return; }
+                    appLog('error', '导出-保存失败: ' + msg);
+                    memShowToast('保存失败：' + msg.slice(0, 100));
+                    showCustomAlert('保存失败：\n' + msg + '\n\n请在设置「日志与错误报告 → 导出日志」后反馈给开发者。', '导出记忆');
                 });
                 return;
             }
@@ -5171,6 +5293,64 @@ ${memoryBlock}
             stopQrCameraScan();
             const o = document.getElementById('memoryBackupOverlay');
             if (o) o.remove();
+        }
+
+        function showAppLogsModal() {
+            const logs = getAppLogs();
+            const overlay = buildMemoryOverlay();
+            overlay.innerHTML = `
+                <div class="modal-panel w-full max-w-sm max-h-[80vh] flex flex-col overflow-hidden animate-modal-pop">
+                  <div class="flex items-center gap-3 px-5 py-4 border-b border-white/60">
+                    <div class="text-base font-bold text-indigo-950">日志与错误报告</div>
+                    <span class="text-[10px] text-indigo-300">` + MEMORY_BUILD_TAG + ` · ` + logs.length + ` 条</span>
+                    <button data-mem-close class="ml-auto p-1.5 rounded-lg hover:bg-white/60"><svg class="w-4 h-4 text-indigo-400" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 18L18 6M6 6l12 12"/></svg></button>
+                  </div>
+                  <div class="p-4 space-y-3 flex-1 min-h-0 flex flex-col">
+                    <textarea id="appLogText" readonly class="modal-textarea flex-1 min-h-0 text-[10px] leading-relaxed" style="height: 260px;">${logs.map(l => '[' + l.t + '] ' + l.level.toUpperCase() + ' | ' + l.text).join('\n')}</textarea>
+                    <div class="flex items-center gap-2 flex-wrap">
+                        <button id="appLogCopyBtn" class="btn-secondary text-xs">复制全部</button>
+                        <button id="appLogExportBtn" class="btn-secondary text-xs">导出日志文件</button>
+                        <button id="appLogClearBtn" class="btn-secondary text-xs">清空日志</button>
+                        <button data-mem-close class="btn-secondary text-xs ml-auto">关闭</button>
+                    </div>
+                    <p class="text-[10px] text-indigo-300 leading-relaxed">日志保存在本机（localStorage）。导出会写入系统「下载/ElainaChat」目录。</p>
+                  </div>
+                </div>`;
+            bindMemoryOverlay(overlay);
+            overlay.querySelector('#appLogCopyBtn')?.addEventListener('click', e => {
+                e.stopPropagation();
+                const ta = overlay.querySelector('#appLogText');
+                try {
+                    ta.select();
+                    document.execCommand('copy');
+                    memShowToast('已复制到剪贴板');
+                } catch (err) { memShowToast('复制失败，请长按全选复制'); }
+            });
+            overlay.querySelector('#appLogExportBtn')?.addEventListener('click', e => { e.stopPropagation(); exportAppLogsFile(); });
+            overlay.querySelector('#appLogClearBtn')?.addEventListener('click', e => { e.stopPropagation(); clearAppLogs(); memShowToast('日志已清空（重新打开可见新日志）'); });
+        }
+
+        function exportAppLogsFile() {
+            try {
+                const logs = getAppLogs();
+                const text = 'ElainaChat 日志 ' + MEMORY_BUILD_TAG + '\n' + '导出时间: ' + new Date().toLocaleString() + '\n\n' + logs.map(l => '[' + l.t + '] ' + l.level.toUpperCase() + ' | ' + l.text).join('\n');
+                const stamp = new Date().toISOString().slice(0, 10);
+                const filename = 'ElainaChat_日志_' + stamp + '_' + MEMORY_BUILD_TAG + '.txt';
+                const plugin = getNativeDocumentFilePlugin();
+                if (plugin && plugin.saveFile) {
+                    plugin.saveFile({ filename: filename, mime: 'text/plain', data: base64EncodeUtf8(text) }).then(result => {
+                        appLog('info', '日志已导出: ' + filename);
+                        memShowToast('日志已保存：下载/ElainaChat/' + filename);
+                    }).catch(err => {
+                        memShowToast('日志导出失败：' + String((err && err.message) || err).slice(0, 80));
+                    });
+                } else {
+                    downloadTextFile(filename, text);
+                    memShowToast('日志已下载：' + filename);
+                }
+            } catch (e) {
+                memShowToast('日志导出失败：' + ((e && e.message) || e));
+            }
         }
 
         function runMemoryFileDiagnostics() {
@@ -5221,9 +5401,9 @@ ${memoryBlock}
                       <label class="flex items-center gap-2 text-xs text-indigo-700 cursor-pointer"><input type="radio" name="memFormat" value="qr" class="accent-pink-500"> 二维码（互传）</label>
                     </div>
                     <button id="memExportGo" class="btn-primary text-sm w-full">导出</button>
-                    <button id="memDiagExport" class="btn-secondary text-[11px] text-indigo-400 w-full">运行诊断（构建 20260823-v3）</button>
+                    <button id="memDiagExport" class="btn-secondary text-[11px] text-indigo-400 w-full">运行诊断（构建 20260823-v4）</button>
                     <button data-mem-close class="btn-secondary text-sm w-full">取消</button>
-                    <div class="text-[10px] text-indigo-300 text-center">构建 20260823-v3 · 直接保存到「下载」</div>
+                    <div class="text-[10px] text-indigo-300 text-center">构建 20260823-v4 · 先试文件管理器，失败自动存「下载」</div>
                   </div>
                 </div>`;
             bindMemoryOverlay(overlay);
@@ -5282,9 +5462,9 @@ ${memoryBlock}
                   <div class="p-5 space-y-3">
                     <button id="memImportLocal" class="btn-primary text-sm w-full">从「下载」导入记忆（JSON）</button>
                     <button id="memImportQr" class="btn-primary text-sm w-full">二维码互传（扫码导入）</button>
-                    <button id="memDiagImport" class="btn-secondary text-[11px] text-indigo-400 w-full">运行诊断（构建 20260823-v3）</button>
+                    <button id="memDiagImport" class="btn-secondary text-[11px] text-indigo-400 w-full">运行诊断（构建 20260823-v4）</button>
                     <button data-mem-close class="btn-secondary text-sm w-full">取消</button>
-                    <div class="text-[10px] text-indigo-300 text-center">构建 20260823-v3 · 无系统文件选择器方案</div>
+                    <div class="text-[10px] text-indigo-300 text-center">构建 20260823-v4 · 先试文件管理器，失败自动扫描「下载」</div>
                   </div>
                 </div>`;
             bindMemoryOverlay(overlay);
@@ -5295,12 +5475,36 @@ ${memoryBlock}
         }
 
         function importMemoryFromLocal() {
+            appLog('info', '导入-开始（尝试系统文件管理器）');
             const plugin = getNativeDocumentFilePlugin();
+            // 1) 先试系统文件管理器（ACTION_OPEN_DOCUMENT）；调不动会快速失败
+            if (plugin && plugin.importFile) {
+                const startTs = Date.now();
+                plugin.importFile({ mime: 'application/json,text/plain' }).then(result => {
+                    const content = result && result.content;
+                    appLog('info', '导入-系统打开成功: ' + ((result && result.name) || ''));
+                    if (!content) return;
+                    handleImportedContent(content, (result && result.name) || 'file');
+                }).catch(err => {
+                    const msg = String((err && err.message) || err || '');
+                    const fast = (Date.now() - startTs) < 2000;
+                    appLog('warn', '导入-系统打开失败(' + (fast ? '快速失败->文件管理器不可用' : '慢失败') + '): ' + msg);
+                    if (msg.toLowerCase().indexOf('cancel') >= 0 && !fast) { appLog('info', '导入-用户取消'); return; }
+                    if (plugin.listFiles && plugin.readFile) {
+                        if (fast) memShowToast('系统文件管理器不可用，改为扫描「下载」目录…');
+                        importFromDownloadsList(plugin);
+                    } else {
+                        memShowToast('导入失败：' + msg.slice(0, 120));
+                    }
+                });
+                return;
+            }
+            // 2) 没有 importFile：直接扫描「下载」
             if (plugin && plugin.listFiles && plugin.readFile) {
                 importFromDownloadsList(plugin);
                 return;
             }
-            // 网页（浏览器）环境：使用 file input
+            // 3) 网页（浏览器）环境：file input
             const input = ensureMemoryFileInput();
             input.value = '';
             const basePick = memoryFilePickedAt;
@@ -10029,6 +10233,7 @@ ${memoryBlock}
             elements.testTtsConnectionBtn.addEventListener('click', testTtsConnection);
             elements.clearApiKeysBtn.addEventListener('click', clearApiKeys);
             elements.announcementConfirmBtn.addEventListener('click', closeAnnouncement);
+            elements.announcementSkipBtn?.addEventListener('click', dismissAnnouncement);
             elements.announcementOverlay.addEventListener('click', (event) => {
                 if (event.target === elements.announcementOverlay && !isFirstInstall()) closeAnnouncement();
             });
@@ -10101,13 +10306,16 @@ ${memoryBlock}
             elements.composerThinkingToggle.addEventListener('change', () => updateThinkingMode(elements.composerThinkingToggle.checked));
             elements.initialComposerMemoryBtn.addEventListener('click', runManualMemorySummary);
             elements.composerMemoryBtn.addEventListener('click', runManualMemorySummary);
-            elements.initialComposerExportMemoryBtn?.addEventListener('click', () => showMemoryExportDialog('all'));
-            elements.initialComposerImportMemoryBtn?.addEventListener('click', () => showMemoryImportDialog());
-            elements.composerExportMemoryBtn?.addEventListener('click', () => showMemoryExportDialog('all'));
-            elements.composerImportMemoryBtn?.addEventListener('click', () => showMemoryImportDialog());
-            elements.sidebarMemoryImportBtn?.addEventListener('click', (e) => { e.stopPropagation(); showMemoryImportDialog(); });
-            document.getElementById('settingExportMemoryBtn')?.addEventListener('click', () => showMemoryExportDialog('all'));
-            document.getElementById('settingImportMemoryBtn')?.addEventListener('click', () => showMemoryImportDialog());
+            document.getElementById('initialComposerExportMemoryBtn')?.addEventListener('click', () => guardedMemoryOpen('导出记忆', () => showMemoryExportDialog('all')));
+            document.getElementById('initialComposerImportMemoryBtn')?.addEventListener('click', () => guardedMemoryOpen('导入记忆', () => showMemoryImportDialog()));
+            document.getElementById('composerExportMemoryBtn')?.addEventListener('click', () => guardedMemoryOpen('导出记忆', () => showMemoryExportDialog('all')));
+            document.getElementById('composerImportMemoryBtn')?.addEventListener('click', () => guardedMemoryOpen('导入记忆', () => showMemoryImportDialog()));
+            document.getElementById('sidebarMemoryImportBtn')?.addEventListener('click', (e) => { e.stopPropagation(); guardedMemoryOpen('导入记忆（侧栏）', () => showMemoryImportDialog()); });
+            document.getElementById('settingExportMemoryBtn')?.addEventListener('click', () => guardedMemoryOpen('导出记忆（设置页）', () => showMemoryExportDialog('all')));
+            document.getElementById('settingImportMemoryBtn')?.addEventListener('click', () => guardedMemoryOpen('导入记忆（设置页）', () => showMemoryImportDialog()));
+            document.getElementById('settingLogsBtn')?.addEventListener('click', () => guardedMemoryOpen('日志与错误报告', () => showAppLogsModal()));
+            document.getElementById('settingExportLogsBtn')?.addEventListener('click', () => guardedMemoryOpen('导出日志', () => exportAppLogsFile()));
+            document.getElementById('settingClearLogsBtn')?.addEventListener('click', () => { clearAppLogs(); memShowToast('日志已清空'); });
             elements.composerPromptBtn.addEventListener('click', openConversationPromptEditor);
             elements.initialComposerPromptBtn.addEventListener('click', openConversationPromptEditor);
             elements.conversationPromptCancelBtn.addEventListener('click', closeConversationPromptEditor);
