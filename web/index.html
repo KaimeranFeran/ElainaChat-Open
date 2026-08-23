@@ -3192,6 +3192,32 @@
                         <label class="text-xs text-indigo-500 mb-1 block">开场白（首页问候语）</label>
                         <input id="ccGreeting" type="text" class="modal-input text-sm">
                     </div>
+                    <div class="mt-3 border-t border-white/60 pt-3">
+                        <div class="modal-label flex items-center gap-2 mb-1"><span class="text-sky-500">✦</span> 用户身份设定</div>
+                        <div class="grid grid-cols-2 gap-3 mb-3 mt-2">
+                            <div>
+                                <label class="text-xs text-indigo-500 mb-1 block">用户称呼</label>
+                                <input id="uiName" type="text" class="modal-input text-sm" placeholder="例如：小悠 / 主人 / 老师">
+                            </div>
+                            <div>
+                                <label class="text-xs text-indigo-500 mb-1 block">用户身份一句话</label>
+                                <input id="uiTitle" type="text" class="modal-input text-sm" placeholder="例如：高中生 / 魔法学徒 / 上班族">
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="text-xs text-indigo-500 mb-1 block">性格特点</label>
+                            <textarea id="uiPersonality" rows="3" class="modal-textarea text-sm resize-y" placeholder="可多写几条：温柔内向、怕黑、喜欢猫…"></textarea>
+                        </div>
+                        <div class="mb-3">
+                            <label class="text-xs text-indigo-500 mb-1 block">背景故事</label>
+                            <textarea id="uiBackground" rows="4" class="modal-textarea text-sm resize-y" placeholder="用户的生活背景、与角色相遇前的经历等"></textarea>
+                        </div>
+                        <div class="mb-3">
+                            <label class="text-xs text-indigo-500 mb-1 block">其他说明</label>
+                            <textarea id="uiExtra" rows="3" class="modal-textarea text-sm resize-y" placeholder="称呼习惯、禁忌话题、想被记住的小事等"></textarea>
+                        </div>
+                        <p class="text-[10px] text-indigo-300 leading-relaxed">设定「用户是谁」，对话中会按这些信息称呼与对待你。每个对话可在「当前会话角色卡」里单独覆盖。</p>
+                    </div>
                     <div class="flex gap-2">
                         <button id="previewPromptBtn" class="btn-secondary text-xs">查看完整 Prompt</button>
                         <button id="resetCharacterBtn" class="btn-secondary text-xs">恢复默认伊蕾娜卡</button>
@@ -3518,6 +3544,33 @@
                     <label for="convCcGreeting" class="text-xs font-bold text-indigo-800 mb-1.5 block">开场白（本对话问候语）</label>
                     <input id="convCcGreeting" type="text" class="modal-input text-sm w-full">
                 </div>
+                <div class="mt-4 border-t border-white/60 pt-3">
+                    <p class="guide-eyebrow" style="color:#0284c7;">仅对当前会话生效</p>
+                    <h3 class="guide-title font-bold" style="font-size:15px;">本对话用户身份</h3>
+                    <p class="guide-field-hint mt-1">为本对话单独设定「用户是谁」，覆盖全局用户身份设定；留空则使用全局设定。</p>
+                    <div class="grid grid-cols-2 gap-3 mt-3">
+                        <div>
+                            <label for="convUiName" class="text-xs font-bold text-indigo-800 mb-1.5 block">用户称呼</label>
+                            <input id="convUiName" type="text" class="modal-input text-sm w-full" placeholder="例如：小悠 / 主人">
+                        </div>
+                        <div>
+                            <label for="convUiTitle" class="text-xs font-bold text-indigo-800 mb-1.5 block">用户身份一句话</label>
+                            <input id="convUiTitle" type="text" class="modal-input text-sm w-full" placeholder="例如：魔法学徒">
+                        </div>
+                    </div>
+                    <div class="mt-3">
+                        <label for="convUiPersonality" class="text-xs font-bold text-indigo-800 mb-1.5 block">性格特点</label>
+                        <textarea id="convUiPersonality" rows="3" class="modal-textarea text-sm w-full resize-y" placeholder="本对话中用户的性格特点"></textarea>
+                    </div>
+                    <div class="mt-3">
+                        <label for="convUiBackground" class="text-xs font-bold text-indigo-800 mb-1.5 block">背景故事</label>
+                        <textarea id="convUiBackground" rows="4" class="modal-textarea text-sm w-full resize-y" placeholder="本对话中用户的背景故事"></textarea>
+                    </div>
+                    <div class="mt-3">
+                        <label for="convUiExtra" class="text-xs font-bold text-indigo-800 mb-1.5 block">其他说明</label>
+                        <textarea id="convUiExtra" rows="3" class="modal-textarea text-sm w-full resize-y" placeholder="称呼习惯、禁忌话题等"></textarea>
+                    </div>
+                </div>
                 <p id="conversationPromptError" class="guide-error hidden">保存失败，请检查填写内容。</p>
             </div>
             <div class="px-6 py-4 border-t border-white/60 flex justify-end gap-2">
@@ -3744,6 +3797,7 @@ ${DEFAULT_CHARACTER_PREFERENCES}
             voiceState: 'idle',
             settings: { ...DEFAULT_SETTINGS },
             characterCard: { ...DEFAULT_CHARACTER_CARD },
+            userIdentity: emptyUserIdentity(),
             conversations: [],
             currentConversationId: null,
             categories: [],
@@ -3887,6 +3941,11 @@ ${DEFAULT_CHARACTER_PREFERENCES}
             convCcWorldSetting: document.getElementById('convCcWorldSetting'),
             convCcCharacterPrompt: document.getElementById('convCcCharacterPrompt'),
             convCcGreeting: document.getElementById('convCcGreeting'),
+            convUiName: document.getElementById('convUiName'),
+            convUiTitle: document.getElementById('convUiTitle'),
+            convUiPersonality: document.getElementById('convUiPersonality'),
+            convUiBackground: document.getElementById('convUiBackground'),
+            convUiExtra: document.getElementById('convUiExtra'),
             settingApiFormat: document.getElementById('settingApiFormat'),
             settingProviderMode: document.getElementById('settingProviderMode'),
             settingBaseUrl: document.getElementById('settingBaseUrl'),
@@ -4438,6 +4497,50 @@ ${DEFAULT_CHARACTER_PREFERENCES}
             return getConversationCharacterCard(conv) || state.characterCard;
         }
 
+        // ==================== 用户身份设定 ====================
+        function emptyUserIdentity() {
+            return { name: '', title: '', personality: '', background: '', extra: '' };
+        }
+        function normalizeUserIdentity(input) {
+            const src = input && typeof input === 'object' ? input : {};
+            const out = emptyUserIdentity();
+            ['name', 'title', 'personality', 'background', 'extra'].forEach(k => { out[k] = String(src[k] || '').trim(); });
+            return out;
+        }
+        function loadUserIdentity() {
+            try {
+                const saved = localStorage.getItem('elaina_open_user_identity');
+                state.userIdentity = saved ? normalizeUserIdentity(JSON.parse(saved)) : emptyUserIdentity();
+            } catch (e) { state.userIdentity = emptyUserIdentity(); }
+        }
+        function saveUserIdentity() {
+            try { localStorage.setItem('elaina_open_user_identity', JSON.stringify(state.userIdentity || emptyUserIdentity())); } catch (e) {}
+        }
+        function getConversationUserIdentity(conv) {
+            if (!conv || !conv.userIdentity) return null;
+            const ui = normalizeUserIdentity(conv.userIdentity);
+            return (ui.name || ui.title || ui.personality || ui.background || ui.extra) ? ui : null;
+        }
+        function getEffectiveUserIdentity(conv = getCurrentConversation()) {
+            return getConversationUserIdentity(conv) || normalizeUserIdentity(state.userIdentity);
+        }
+        function buildUserIdentitySystemMessages(identity) {
+            const name = String(identity && identity.name || '').trim();
+            const title = String(identity && identity.title || '').trim();
+            const personality = String(identity && identity.personality || '').trim();
+            const background = String(identity && identity.background || '').trim();
+            const extra = String(identity && identity.extra || '').trim();
+            if (!name && !title && !personality && !background && !extra) return [];
+            const lines = ['# 用户身份设定', '以下信息描述正在与你对话的「用户」本人，请在对话中尊重并自然应用：'];
+            if (name) lines.push('用户称呼：' + name);
+            if (title) lines.push('用户身份：' + title);
+            if (personality) lines.push('用户性格特点：' + personality);
+            if (background) lines.push('用户背景：' + background);
+            if (extra) lines.push('其他说明：' + extra);
+            lines.push('按以上设定称呼和对待用户；不要向用户复述这些设定，也不要提醒用户这是设定。');
+            return [{ role: 'system', content: lines.join('\n') }];
+        }
+
         function openConversationPromptEditor() {
             const conv = getCurrentConversation();
             if (!conv) {
@@ -4450,6 +4553,12 @@ ${DEFAULT_CHARACTER_PREFERENCES}
             elements.convCcWorldSetting.value = String(card.worldSetting || '');
             elements.convCcCharacterPrompt.value = String(card.characterPrompt || '');
             elements.convCcGreeting.value = String(card.greeting || '');
+            const convUi = getConversationUserIdentity(conv) || normalizeUserIdentity(state.userIdentity);
+            elements.convUiName.value = String(convUi.name || '');
+            elements.convUiTitle.value = String(convUi.title || '');
+            elements.convUiPersonality.value = String(convUi.personality || '');
+            elements.convUiBackground.value = String(convUi.background || '');
+            elements.convUiExtra.value = String(convUi.extra || '');
             elements.conversationPromptError.classList.add('hidden');
             elements.conversationPromptOverlay.classList.remove('hidden');
             elements.conversationPromptOverlay.classList.add('flex');
@@ -4469,6 +4578,12 @@ ${DEFAULT_CHARACTER_PREFERENCES}
             elements.convCcWorldSetting.value = String(card.worldSetting || '');
             elements.convCcCharacterPrompt.value = String(card.characterPrompt || '');
             elements.convCcGreeting.value = String(card.greeting || '');
+            const convUi = normalizeUserIdentity(state.userIdentity);
+            elements.convUiName.value = String(convUi.name || '');
+            elements.convUiTitle.value = String(convUi.title || '');
+            elements.convUiPersonality.value = String(convUi.personality || '');
+            elements.convUiBackground.value = String(convUi.background || '');
+            elements.convUiExtra.value = String(convUi.extra || '');
         }
 
         function saveConversationPrompt() {
@@ -4483,6 +4598,16 @@ ${DEFAULT_CHARACTER_PREFERENCES}
                 conv.characterCard = { name, title, worldSetting, characterPrompt, greeting };
             } else {
                 delete conv.characterCard;
+            }
+            const uiName = String(elements.convUiName.value || '').trim();
+            const uiTitle = String(elements.convUiTitle.value || '').trim();
+            const uiPersonality = String(elements.convUiPersonality.value || '').trim();
+            const uiBackground = String(elements.convUiBackground.value || '').trim();
+            const uiExtra = String(elements.convUiExtra.value || '').trim();
+            if (uiName || uiTitle || uiPersonality || uiBackground || uiExtra) {
+                conv.userIdentity = { name: uiName, title: uiTitle, personality: uiPersonality, background: uiBackground, extra: uiExtra };
+            } else {
+                delete conv.userIdentity;
             }
             conv.updatedAt = new Date().toISOString();
             saveConversations();
@@ -4516,6 +4641,8 @@ ${DEFAULT_CHARACTER_PREFERENCES}
             const characterName = String(card.name || '伊蕾娜').trim() || '伊蕾娜';
             const imageDataUrl = isSafeComposerImageDataUrl(options.imageDataUrl) ? options.imageDataUrl : '';
             const messages = buildCharacterSystemMessages(card);
+            const userIdentityMessages = buildUserIdentitySystemMessages(getEffectiveUserIdentity());
+            if (userIdentityMessages.length) messages.push(...userIdentityMessages);
             const memoryBlock = formatRoleplayMemoryForPrompt(text);
             if (memoryBlock) {
                 messages.push({ role: 'system', content: `# 记忆使用规则
@@ -9969,6 +10096,11 @@ ${memoryBlock}
             document.getElementById('ccWorldSetting').value = state.characterCard.worldSetting;
             document.getElementById('ccCharacterPrompt').value = state.characterCard.characterPrompt;
             document.getElementById('ccGreeting').value = state.characterCard.greeting;
+            document.getElementById('uiName').value = state.userIdentity.name;
+            document.getElementById('uiTitle').value = state.userIdentity.title;
+            document.getElementById('uiPersonality').value = state.userIdentity.personality;
+            document.getElementById('uiBackground').value = state.userIdentity.background;
+            document.getElementById('uiExtra').value = state.userIdentity.extra;
             settingsContent.scrollTop = 0;
 
             elements.settingsOverlay.classList.remove('hidden');
@@ -10150,6 +10282,14 @@ ${memoryBlock}
                 greeting: document.getElementById('ccGreeting').value.trim()
             };
             saveCharacterCard();
+            state.userIdentity = {
+                name: document.getElementById('uiName').value.trim(),
+                title: document.getElementById('uiTitle').value.trim(),
+                personality: document.getElementById('uiPersonality').value.trim(),
+                background: document.getElementById('uiBackground').value.trim(),
+                extra: document.getElementById('uiExtra').value.trim()
+            };
+            saveUserIdentity();
 
             closeSettingsPanel();
             showCustomAlert('设置已保存！', '保存成功');
@@ -10163,7 +10303,14 @@ ${memoryBlock}
                 characterPrompt: document.getElementById('ccCharacterPrompt').value.trim(),
                 greeting: document.getElementById('ccGreeting').value.trim()
             };
-            const prompt = buildCharacterSystemPrompt(card);
+            const uiText = buildUserIdentitySystemMessages({
+                name: document.getElementById('uiName').value.trim(),
+                title: document.getElementById('uiTitle').value.trim(),
+                personality: document.getElementById('uiPersonality').value.trim(),
+                background: document.getElementById('uiBackground').value.trim(),
+                extra: document.getElementById('uiExtra').value.trim()
+            }).map(m => m.content).join('\n\n');
+            const prompt = uiText ? (buildCharacterSystemPrompt(card) + '\n\n' + uiText) : buildCharacterSystemPrompt(card);
             showCustomAlert(prompt, '角色卡生成的 System Prompt');
         }
 
@@ -10306,6 +10453,7 @@ ${memoryBlock}
             loadSettings();
             await loadApiSecrets();
             loadCharacterCard();
+            loadUserIdentity();
             loadConversations();
             loadFavorites();
             loadLikedQuotes();
