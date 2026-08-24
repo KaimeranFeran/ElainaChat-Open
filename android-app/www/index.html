@@ -4102,7 +4102,7 @@ ${DEFAULT_CHARACTER_PREFERENCES}
                 case 'UPSTREAM_RATE_LIMITED':
                     return { title: '请求过于频繁', message: '请求过于频繁，请稍后再试。' };
                 case 'NETWORK_ERROR':
-                    return { title: '网络连接失败', message: '无法直连服务商；Web 版还可能受到浏览器 CORS 限制，可改用自己的兼容地址。' };
+                    return { title: '网络连接失败', message: '无法直连服务商；Web 版还可能受到浏览器 CORS 限制，可改用自己的兼容地址。\n\n（当前接口地址：' + (typeof getGatewayBaseUrl === 'function' ? (() => { try { return getGatewayBaseUrl(); } catch (e) { return '?'; } })() : '?') + '）' };
                 case 'REQUEST_TIMEOUT':
                     return { title: '请求超时', message: '服务商响应超时，请稍后再试。' };
                 case 'BAD_REQUEST':
