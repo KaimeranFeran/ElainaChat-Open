@@ -207,4 +207,136 @@
     try { const t = parseInt(localStorage.getItem('elaina_settings_tab') || '0', 10); if (!isNaN(t) && t >= 0 && t < groups.length) initial = t; } catch (e) {}
     apply(initial, false);
   }, 'settings nav');
+
+  /* ---- 6) QQ 式语音长按放大 + 拖动调节进度 ---- */
+  safe(() => {
+    let pressTimer = null;
+    let seeking = false;
+    let suppressed = false;
+    let startX = 0, startY = 0;
+    let card = null;
+    let ratio = 0;
+    let progressTimer = null;
+    let msgId = null;
+
+    const fmt = (sec) => {
+      const m = Math.floor(sec / 60), s = Math.floor(sec % 60);
+      return m + ':' + String(s).padStart(2, '0');
+    };
+    const buildBar = (c) => {
+      c.insertAdjacentHTML('beforeend',
+        '<div class="voice-seek-bar">' +
+        '<span class="voice-seek-time sw-seek-cur">0:00</span>' +
+        '<div class="voice-seek-track"><div class="voice-seek-fill"></div><div class="voice-seek-thumb"></div></div>' +
+        '<span class="voice-seek-time sw-seek-total">0:00</span>' +
+        '</div>' +
+        '<div class="voice-seek-hint">拖动调节进度</div>');
+      return c.querySelector('.voice-seek-bar');
+    };
+    const updateUI = (r) => {
+      const track = card.querySelector('.voice-seek-track');
+      if (!track) return;
+      const w = track.getBoundingClientRect().width;
+      const x = r * w;
+      const fill = card.querySelector('.voice-seek-fill');
+      const thumb = card.querySelector('.voice-seek-thumb');
+      if (fill) fill.style.width = (r * 100) + '%';
+      if (thumb) thumb.style.left = Math.max(-9, Math.min(w - 9, x)) + 'px';
+      const info = window.__voiceSeekInfo ? window.__voiceSeekInfo() : { duration: 0 };
+      const d = info.duration || 0;
+      const cur = card.querySelector('.sw-seek-cur');
+      if (cur) cur.textContent = fmt(r * d);
+    };
+    const ratioFromEvent = (ev) => {
+      const track = card.querySelector('.voice-seek-track');
+      if (!track) return 0;
+      const rect = track.getBoundingClientRect();
+      const x = (ev.touches ? ev.touches[0].clientX : ev.clientX) - rect.left;
+      return Math.max(0, Math.min(1, x / Math.max(1, rect.width)));
+    };
+    const pressStart = (ev, target) => {
+      if (!(window.TouchEvent && ev.type === 'touchstart') && ev.type !== 'mousedown') return;
+      const c = target.closest('.ai-voice-card');
+      if (!c || seeking) return;
+      const inBar = target.closest('.voice-seek-bar');
+      if (inBar) return;
+      card = c;
+      const btn = card.querySelector('[id^="voice-player-"]');
+      msgId = btn ? btn.id.replace('voice-player-', '') : null;
+      startX = (ev.touches ? ev.touches[0].clientX : ev.clientX);
+      startY = (ev.touches ? ev.touches[0].clientY : ev.clientY);
+      pressTimer = setTimeout(() => {
+        pressTimer = null;
+        seeking = true;
+        suppressed = true;
+        card.classList.add('voice-zoomed');
+        if (!card.querySelector('.voice-seek-bar')) buildBar(card);
+        const info = window.__voiceSeekInfo ? window.__voiceSeekInfo() : { ok: false, duration: 0 };
+        const totalEl = card.querySelector('.sw-seek-total');
+        if (totalEl && info.duration) totalEl.textContent = fmt(info.duration);
+        ratio = 0;
+        updateUI(0);
+      }, 480);
+    };
+    const pressMove = (ev) => {
+      if (!seeking || !card) return;
+      const x = (ev.touches ? ev.touches[0].clientX : ev.clientX);
+      const y = (ev.touches ? ev.touches[0].clientY : ev.clientY);
+      if (Math.abs(x - startX) > 10 || Math.abs(y - startY) > 10) {
+        const track = card.querySelector('.voice-seek-track');
+        if (track) {
+          ev.preventDefault();
+          ratio = ratioFromEvent(ev);
+          updateUI(ratio);
+        }
+      }
+    };
+    const pressEnd = (ev) => {
+      if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
+      if (!seeking || !card) {
+        if (pressTimer === null) { suppressed = false; }
+        return;
+      }
+      const c = card;
+      card = null;
+      seeking = false;
+      const info = window.__voiceSeekInfo ? window.__voiceSeekInfo() : { ok: false };
+      if (info.ok) {
+        try { window.__voiceSeek(ratio, msgId); } catch (e) {}
+        const d = info.duration || 0;
+        const at = Date.now();
+        progressTimer = setInterval(() => {
+          const el = (Date.now() - at) / 1000;
+          const r2 = Math.min(1, (((ratio * d) + el) / d));
+          const f2 = c.querySelector('.voice-seek-fill');
+          const t2 = c.querySelector('.voice-seek-thumb');
+          const track2 = c.querySelector('.voice-seek-track');
+          if (f2) f2.style.width = (r2 * 100) + '%';
+          if (t2 && track2) t2.style.left = Math.max(-9, Math.min(track2.getBoundingClientRect().width - 9, r2 * track2.getBoundingClientRect().width)) + 'px';
+          const cur = c.querySelector('.sw-seek-cur');
+          if (cur) cur.textContent = fmt(r2 * d);
+          if (r2 >= 1) { clearInterval(progressTimer); progressTimer = null; }
+        }, 300);
+      }
+      setTimeout(() => { c.classList.remove('voice-zoomed'); }, 1400);
+      setTimeout(() => { suppressed = false; }, 200);
+    };
+    const pressCancel = () => {
+      if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
+    };
+    let lastTouchTs = 0;
+    const onTouchStart = (ev) => { lastTouchTs = Date.now(); pressStart(ev, ev.target); };
+    const onMouseDown = (ev) => { if (Date.now() - lastTouchTs < 500) return; pressStart(ev, ev.target); };
+    document.addEventListener('touchstart', onTouchStart, { passive: true });
+    document.addEventListener('touchmove', pressMove, { passive: false });
+    document.addEventListener('touchend', pressEnd, { passive: true });
+    document.addEventListener('touchcancel', pressCancel, { passive: true });
+    document.addEventListener('mousedown', onMouseDown);
+    document.addEventListener('mousemove', pressMove);
+    document.addEventListener('mouseup', pressEnd);
+    document.addEventListener('click', (ev) => {
+      if (suppressed) { ev.stopPropagation(); ev.preventDefault(); }
+    }, true);
+  }, 'voice seek');
+
 })();

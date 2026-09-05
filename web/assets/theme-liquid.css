@@ -1250,3 +1250,121 @@ html[data-theme="dark"] .sw-setting-nav .sw-seg.active {
 @media (hover: none) {
   .sw-setting-nav .sw-seg:active { transform: scale(.96); }
 }
+
+/* ============================================================
+   v5.8 深色文字治本（.bubble-ai p 直接锁定，不再依赖 var 链）
+   + 语义文字变量 dark 覆盖（--text-heading/body/secondary/ink）
+   ============================================================ */
+html[data-theme="dark"] {
+  --text-heading: #eef2f7 !important;
+  --text-body: #c9d2de !important;
+  --text-secondary: #aab6c8 !important;
+  --ink: #eef2f7 !important;
+}
+.bubble-ai p,
+.bubble-ai .text-indigo-950 { color: #1f2b40 !important; }
+html[data-theme="dark"] .bubble-ai p,
+html[data-theme="dark"] .bubble-ai .text-indigo-950 { color: #eef2f7 !important; }
+.bubble-user p,
+.bubble-user .text-indigo-950,
+.bubble-user .text-indigo-800 { color: #1f2b40 !important; }
+html[data-theme="dark"] .bubble-user p,
+html[data-theme="dark"] .bubble-user .text-indigo-950 { color: #eef2f7 !important; }
+.bubble-ai .text-xs.text-indigo-300,
+.bubble-user .text-xs.text-indigo-300 { color: #8b94a8 !important; }
+html[data-theme="dark"] .bubble-ai .text-xs.text-indigo-300,
+html[data-theme="dark"] .bubble-user .text-xs.text-indigo-300 { color: #8d97ab !important; }
+
+/* ============================================================
+   QQ 式语音 seek：长按放大 + 拖动进度条
+   （theme-menu.js 注入 .voice-seek-bar；.ai-voice-card 加 .voice-zoomed）
+   ============================================================ */
+.ai-voice-card {
+  position: relative;
+  transition: transform .26s var(--lg-ease-spring), box-shadow .26s ease;
+}
+.ai-voice-card.voice-zoomed {
+  transform: scale(1.05);
+  z-index: 30;
+  filter: drop-shadow(0 18px 40px rgba(18, 30, 50, 0.20));
+}
+.voice-seek-bar {
+  display: none;
+  align-items: center !important;
+  gap: 10px !important;
+  margin-top: 8px !important;
+  height: 34px !important;
+  padding: 0 4px !important;
+  border-radius: 12px !important;
+  background: rgba(255, 255, 255, 0.35) !important;
+  border: 1px solid rgba(255, 255, 255, 0.6) !important;
+  touch-action: none !important;
+  user-select: none !important;
+  -webkit-user-select: none !important;
+  -webkit-tap-highlight-color: transparent !important;
+}
+html[data-theme="dark"] .voice-seek-bar {
+  background: rgba(255, 255, 255, 0.08) !important;
+  border-color: rgba(255, 255, 255, 0.16) !important;
+}
+.ai-voice-card.voice-zoomed .voice-seek-bar { display: flex !important; }
+.voice-seek-track {
+  position: relative !important;
+  flex: 1 1 auto !important;
+  height: 8px !important;
+  border-radius: 999px !important;
+  background: rgba(120, 136, 165, 0.25) !important;
+  overflow: visible !important;
+  cursor: pointer;
+}
+html[data-theme="dark"] .voice-seek-track { background: rgba(255, 255, 255, 0.14) !important; }
+.voice-seek-fill {
+  position: absolute !important;
+  left: 0 !important;
+  top: 0 !important;
+  bottom: 0 !important;
+  width: 0% !important;
+  border-radius: 999px !important;
+  background: linear-gradient(90deg, #3390ff, #0a6fd8) !important;
+  transition: width .1s linear;
+}
+.voice-seek-thumb {
+  position: absolute !important;
+  top: 50% !important;
+  width: 18px !important;
+  height: 18px !important;
+  border-radius: 50% !important;
+  background: #ffffff !important;
+  border: 2px solid rgba(0, 122, 255, 0.85) !important;
+  box-shadow: 0 2px 6px rgba(18, 30, 50, 0.25) !important;
+  transform: translateY(-50%) !important;
+  left: -9px !important;
+  transition: left .1s linear;
+}
+.voice-seek-time {
+  flex: 0 0 auto !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  color: var(--lg-ink-soft) !important;
+  min-width: 34px !important;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.voice-seek-hint {
+  position: absolute !important;
+  top: -30px !important;
+  left: 50% !important;
+  transform: translateX(-50%) !important;
+  padding: 4px 10px !important;
+  border-radius: 999px !important;
+  background: rgba(30, 36, 46, 0.92) !important;
+  color: #fff !important;
+  font-size: 10px !important;
+  font-weight: 600 !important;
+  white-space: nowrap;
+  opacity: 0;
+  transition: opacity .18s ease;
+  pointer-events: none;
+  z-index: 5;
+}
+.ai-voice-card.voice-zoomed .voice-seek-hint { opacity: 1; }

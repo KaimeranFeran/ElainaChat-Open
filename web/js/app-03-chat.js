@@ -14,7 +14,7 @@
             return _audioContext;
         }
 
-        const TTS_CACHE_DB_NAME = 'elaina_open_tts_cache_v1';
+        const TTS_CACHE_DB_NAME = 'elaina_tts_cache_v1';
         const TTS_CACHE_STORE = 'pcm_audio';
         const TTS_CACHE_LIMIT = 80;
         let ttsCacheDbPromise = null;
@@ -33,33 +33,12 @@
 
         function buildMessageTtsCacheKey(message, spokenText, conversationId = state.currentConversationId) {
             const clean = sanitizeTtsText(spokenText || '', false);
-            const provider = String(state.settings.ttsProvider || 'minimax');
-            let providerFingerprint = '';
-            if (provider === 'doubao') {
-                const v3 = Boolean(String(state.settings.doubaoApiKey || '').trim());
-                providerFingerprint = [
-                    v3 ? 'v3' : 'v1',
-                    state.settings.doubaoVoice || 'no-voice',
-                    state.settings.doubaoCluster || 'volcano_tts',
-                    state.settings.doubaoResourceId || 'seed-tts-2.0'
-                ].join('|');
-            } else if (provider === 'dashscope') {
-                providerFingerprint = [
-                    state.settings.dashscopeTtsModel || 'qwen3-tts-flash',
-                    state.settings.dashscopeTtsVoice || 'no-voice'
-                ].join('|');
-            } else {
-                providerFingerprint = [
-                    state.settings.minimaxModel || 'speech-2.8-hd',
-                    state.settings.minimaxVoice || 'no-voice'
-                ].join('|');
-            }
             return [
-                'message-v2',
+                'message-v1',
                 conversationId || 'conversation',
                 message?.id || 'unknown',
-                provider,
-                providerFingerprint,
+                state.settings.minimaxModel || 'speech-2.8-hd',
+                FIXED_MINIMAX_VOICE_ID,
                 state.settings.ttsLang || 'japanese',
                 Number(state.settings.ttsSpeed || 1).toFixed(2),
                 Number(state.settings.ttsVolume ?? 1).toFixed(2),
@@ -162,7 +141,7 @@
             ensureVoiceSessionActive(session);
             const context = getAudioContext();
             let buffer;
-            if (['mp3', 'wav', 'ogg', 'opus', 'audio'].includes(record.format)) {
+            if (record.format === 'mp3') {
                 buffer = await context.decodeAudioData(raw.slice(0));
             } else {
                     const bytes = new Uint8Array(raw);
@@ -254,38 +233,31 @@
                     console.log('[TTS Cache] 未命中，首次调用 MiniMax 生成');
                 }
             }
-            const minimaxApiKey = String(state.settings.minimaxApiKey || '').trim();
-            const voiceId = String(state.settings.minimaxVoice || '').trim();
-            if (!minimaxApiKey) throw new ClientApiError('APP_KEY_MISSING', '请先在设置中填写 MiniMax API Key');
-            if (!voiceId) throw new ClientApiError('BAD_REQUEST', '请先在设置中填写自己的 MiniMax 音色 ID');
+            const appAccessKey = String(state.settings.apiKey || '').trim();
+            if (!appAccessKey || !state.settings.baseUrl) {
+                throw new ClientApiError('APP_KEY_MISSING', '请先在设置中填写 ElainaChat 使用 Key');
+            }
             try {
                 session.abortController = new AbortController();
-                const result = await postJsonFromDevice(MINIMAX_TTS_HTTP, {
-                    model: state.settings.minimaxModel || 'speech-2.8-hd',
-                    text,
-                    stream: false,
-                    language_boost: 'auto',
-                    voice_setting: {
-                        voice_id: voiceId,
-                        speed: state.settings.ttsSpeed || 1.0,
-                        vol: state.settings.ttsVolume ?? 1,
-                        pitch: 0
+                const response = await fetchWithTimeout(`${getGatewayBaseUrl()}/api/tts`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${appAccessKey}`
                     },
-                    audio_setting: {
-                        sample_rate: 24000,
-                        bitrate: 128000,
-                        format: 'mp3',
-                        channel: 1
-                    }
-                }, { Authorization: `Bearer ${minimaxApiKey}` });
-                if (!result.ok) await throwProviderResponseError(result, 'MiniMax 语音生成失败');
-                const providerCode = Number(result.payload?.base_resp?.status_code || 0);
-                if (providerCode !== 0) await throwProviderResponseError(result, result.payload?.base_resp?.status_msg || 'MiniMax 语音生成失败');
-                const audioHex = String(result.payload?.data?.audio || '').trim();
-                if (!audioHex || audioHex.length % 2 !== 0) throw new ClientApiError('UPSTREAM_UNAVAILABLE', 'MiniMax TTS 返回了空音频');
-                const bytes = new Uint8Array(audioHex.length / 2);
-                for (let index = 0; index < bytes.length; index++) bytes[index] = parseInt(audioHex.slice(index * 2, index * 2 + 2), 16);
-                const mp3 = bytes.buffer;
+                    signal: session.abortController.signal,
+                    body: JSON.stringify({
+                        text,
+                        model: state.settings.minimaxModel || 'speech-2.8-hd',
+                        speed: state.settings.ttsSpeed || 1.0,
+                        volume: state.settings.ttsVolume ?? 1
+                    })
+                }, 120000);
+                if (!response.ok) {
+                    throw await readApiErrorResponse(response, '云端语音生成失败');
+                }
+                const mp3 = await response.arrayBuffer();
+                if (!mp3.byteLength) throw new ClientApiError('UPSTREAM_UNAVAILABLE', '云端 TTS 返回了空音频');
                 ensureVoiceSessionActive(session);
                 if (cacheKey) {
                     await saveCachedTtsAudio(cacheKey, mp3, 24000, 'mp3');
@@ -297,232 +269,6 @@
             } catch (error) {
                 if (isVoiceCancellation(error) || !isVoiceSessionActive(session)) return { cancelled: true };
                 console.error('[MiniMax TTS] error:', error);
-                throw toClientApiError(error);
-            }
-        }
-
-        function parseDoubaoSseAudio(rawText) {
-            const chunks = [];
-            let lastError = '';
-            const lines = String(rawText || '').split(/\r?\n/);
-            for (const line of lines) {
-                if (!line.startsWith('data:')) continue;
-                const data = line.slice(5).trim();
-                if (!data || data === '[DONE]') continue;
-                let event;
-                try { event = JSON.parse(data); } catch { continue; }
-                const code = Number(event.code ?? 0);
-                if (code !== 0) {
-                    lastError = String(event.message || event.error || '未知错误');
-                    continue;
-                }
-                const audio = event.data;
-                if (typeof audio === 'string' && audio) {
-                    chunks.push(base64ToArrayBuffer(audio));
-                } else if (Array.isArray(audio)) {
-                    audio.forEach(item => {
-                        const b64 = typeof item === 'string' ? item : (item?.data || item?.audio);
-                        if (b64) chunks.push(base64ToArrayBuffer(b64));
-                    });
-                } else if (audio && typeof audio === 'object') {
-                    const b64 = audio.data || audio.audio || audio.base64;
-                    if (b64) chunks.push(base64ToArrayBuffer(b64));
-                }
-            }
-            if (!chunks.length && lastError) {
-                throw new ClientApiError('UPSTREAM_UNAVAILABLE', `豆包语音生成失败：${lastError}`);
-            }
-            return chunks;
-        }
-
-        async function generateDoubaoTtsAudio(text, settings = state.settings) {
-            const voiceId = String(settings.doubaoVoice || '').trim();
-            if (!voiceId) throw new ClientApiError('BAD_REQUEST', '请先在设置中填写豆包音色 ID');
-            const useV3 = Boolean(String(settings.doubaoApiKey || '').trim());
-            if (!useV3 && (!String(settings.doubaoAppId || '').trim() || !String(settings.doubaoToken || '').trim())) {
-                throw new ClientApiError('APP_KEY_MISSING', '请先在设置中填写豆包 App ID 与 Access Token，或改用新控制台 API Key');
-            }
-            const speed = Number(settings.ttsSpeed ?? 1);
-            const volume = Number(settings.ttsVolume ?? 1);
-            let result;
-            if (useV3) {
-                const audioParams = {
-                    format: 'mp3',
-                    sample_rate: 24000,
-                    bit_rate: 64000,
-                    speech_rate: Math.max(-50, Math.min(100, Math.round((speed - 1) * 100))),
-                    loudness_rate: Math.max(-50, Math.min(100, Math.round((volume - 1) * 100)))
-                };
-                const reqParams = {
-                    text,
-                    speaker: voiceId,
-                    audio_params: audioParams
-                };
-                const explicitLanguage = settings.ttsLang === 'japanese'
-                    ? 'ja'
-                    : settings.ttsLang === 'chinese' ? 'zh-cn' : '';
-                if (explicitLanguage) {
-                    reqParams.additions = JSON.stringify({
-                        explicit_language: explicitLanguage,
-                        disable_markdown_filter: true
-                    });
-                }
-                result = await postJsonFromDevice(DOUBAO_TTS_V3_URL, {
-                    user: { uid: generateId() },
-                    req_params: reqParams
-                }, {
-                    'X-Api-Key': String(settings.doubaoApiKey || '').trim(),
-                    'X-Api-Resource-Id': String(settings.doubaoResourceId || 'seed-tts-2.0').trim()
-                });
-            } else {
-                result = await postJsonFromDevice(DOUBAO_TTS_V1_URL, {
-                    app: {
-                        appid: String(settings.doubaoAppId || '').trim(),
-                        token: String(settings.doubaoToken || '').trim(),
-                        cluster: String(settings.doubaoCluster || 'volcano_tts').trim()
-                    },
-                    user: { uid: generateId() },
-                    audio: {
-                        voice_type: voiceId,
-                        encoding: 'mp3',
-                        speed_ratio: speed,
-                        volume_ratio: volume,
-                        pitch_ratio: 1.0
-                    },
-                    request: {
-                        reqid: generateId(),
-                        text,
-                        text_type: 'plain',
-                        operation: 'query',
-                        with_frontend: 1,
-                        frontend_type: 'unitTson'
-                    }
-                }, {
-                    Authorization: `Bearer; ${String(settings.doubaoToken || '').trim()}`
-                });
-            }
-            if (!result.ok) await throwProviderResponseError(result, '豆包语音生成失败');
-            let mp3;
-            if (useV3) {
-                const chunks = parseDoubaoSseAudio(result.rawText);
-                if (!chunks.length) throw new ClientApiError('UPSTREAM_UNAVAILABLE', '豆包语音返回了空音频');
-                mp3 = mergePcmChunks(chunks);
-            } else {
-                const providerCode = Number(result.payload?.code || 0);
-                if (providerCode !== 3000 && providerCode !== 0) {
-                    await throwProviderResponseError(result, result.payload?.message || '豆包语音生成失败');
-                }
-                const audioBase64 = String(result.payload?.data || '');
-                if (!audioBase64) throw new ClientApiError('UPSTREAM_UNAVAILABLE', '豆包语音返回了空音频');
-                mp3 = base64ToArrayBuffer(audioBase64);
-            }
-            return { bytes: mp3, format: 'mp3' };
-        }
-
-        async function speakTextDoubao(text, onStart, options = {}) {
-            const { cacheKey = '', onEnd = null } = options;
-            const session = options.session || createVoiceSession(options.messageId || null);
-            ensureVoiceSessionActive(session);
-            if (cacheKey) {
-                const cached = await getCachedTtsAudio(cacheKey);
-                ensureVoiceSessionActive(session);
-                if (cached?.pcm) {
-                    console.log('[TTS Cache] 命中缓存，直接播放，不调用豆包');
-                    try {
-                        await playCachedPcm(cached, onStart, onEnd, session);
-                        if (!isVoiceSessionActive(session)) return { cancelled: true };
-                        return { cached: true };
-                    } catch (error) {
-                        if (isVoiceCancellation(error) || !isVoiceSessionActive(session)) return { cancelled: true };
-                        console.warn('[TTS Cache] 缓存播放失败，将重新生成:', error);
-                    }
-                } else {
-                    console.log('[TTS Cache] 未命中，首次调用豆包生成');
-                }
-            }
-            try {
-                session.abortController = new AbortController();
-                const { bytes: mp3, format } = await generateDoubaoTtsAudio(text);
-                ensureVoiceSessionActive(session);
-                if (cacheKey) {
-                    await saveCachedTtsAudio(cacheKey, mp3, 24000, format);
-                    console.log('[TTS Cache] 首次豆包 MP3 音频已写入 IndexedDB');
-                }
-                await playCachedPcm({ pcm: mp3, format }, onStart, onEnd, session);
-                if (!isVoiceSessionActive(session)) return { cancelled: true };
-                return { cached: false };
-            } catch (error) {
-                if (isVoiceCancellation(error) || !isVoiceSessionActive(session)) return { cancelled: true };
-                console.error('[Doubao TTS] error:', error);
-                throw toClientApiError(error);
-            }
-        }
-
-        async function generateDashscopeTtsAudio(text, settings = state.settings) {
-            const dashscopeApiKey = String(settings.dashscopeApiKey || '').trim();
-            const voiceId = String(settings.dashscopeTtsVoice || '').trim();
-            if (!dashscopeApiKey) throw new ClientApiError('APP_KEY_MISSING', '请先在设置中填写 DashScope API Key');
-            if (!voiceId) throw new ClientApiError('BAD_REQUEST', '请先在设置中填写千问 TTS 音色');
-            const languageMap = {
-                chinese: 'Chinese',
-                japanese: 'Japanese',
-                english: 'English'
-            };
-            const languageType = languageMap[settings.ttsLang] || 'Auto';
-            const result = await postJsonFromDevice(DASHSCOPE_SYNC_URL, {
-                model: String(settings.dashscopeTtsModel || 'qwen3-tts-flash').trim(),
-                input: {
-                    text,
-                    voice: voiceId,
-                    language_type: languageType
-                }
-            }, {
-                Authorization: `Bearer ${dashscopeApiKey}`
-            });
-            if (!result.ok) await throwProviderResponseError(result, '阿里千问语音生成失败');
-            const audioUrl = String(result.payload?.output?.audio?.url || '').trim();
-            if (!audioUrl) throw new ClientApiError('UPSTREAM_UNAVAILABLE', '阿里千问语音返回了空音频地址');
-            const audio = await getBinaryFromDevice(audioUrl);
-            if (!audio?.bytes?.byteLength) throw new ClientApiError('UPSTREAM_UNAVAILABLE', '阿里千问音频文件为空');
-            const format = /mp3|mpeg/i.test(audio.contentType) ? 'mp3' : 'wav';
-            return { bytes: audio.bytes, format };
-        }
-
-        async function speakTextDashscope(text, onStart, options = {}) {
-            const { cacheKey = '', onEnd = null } = options;
-            const session = options.session || createVoiceSession(options.messageId || null);
-            ensureVoiceSessionActive(session);
-            if (cacheKey) {
-                const cached = await getCachedTtsAudio(cacheKey);
-                ensureVoiceSessionActive(session);
-                if (cached?.pcm) {
-                    console.log('[TTS Cache] 命中缓存，直接播放，不调用阿里千问');
-                    try {
-                        await playCachedPcm(cached, onStart, onEnd, session);
-                        if (!isVoiceSessionActive(session)) return { cancelled: true };
-                        return { cached: true };
-                    } catch (error) {
-                        if (isVoiceCancellation(error) || !isVoiceSessionActive(session)) return { cancelled: true };
-                        console.warn('[TTS Cache] 缓存播放失败，将重新生成:', error);
-                    }
-                } else {
-                    console.log('[TTS Cache] 未命中，首次调用阿里千问生成');
-                }
-            }
-            try {
-                session.abortController = new AbortController();
-                const { bytes, format } = await generateDashscopeTtsAudio(text);
-                ensureVoiceSessionActive(session);
-                if (cacheKey) {
-                    await saveCachedTtsAudio(cacheKey, bytes, 24000, format);
-                    console.log('[TTS Cache] 首次千问音频已写入 IndexedDB');
-                }
-                await playCachedPcm({ pcm: bytes, format }, onStart, onEnd, session);
-                if (!isVoiceSessionActive(session)) return { cancelled: true };
-                return { cached: false };
-            } catch (error) {
-                if (isVoiceCancellation(error) || !isVoiceSessionActive(session)) return { cancelled: true };
-                console.error('[DashScope TTS] error:', error);
                 throw toClientApiError(error);
             }
         }
@@ -592,6 +338,46 @@
             return t.trim();
         }
 
+        /* ---- 语音 Seek（QQ 式：长按放大拖动进度条）---- */
+        window.__voiceSeekInfo = () => {
+            try {
+                if (!window.__voiceInfo) return { ok: false, duration: 0 };
+                return { ok: true, duration: window.__voiceInfo.duration || 0 };
+            } catch (e) { return { ok: false, duration: 0 }; }
+        };
+        window.__voiceSeek = async (ratio, messageId) => {
+            try {
+                const info = window.__voiceInfo;
+                if (!info || !info.buffer) return { ok: false, reason: 'buffering' };
+                const duration = info.duration || info.buffer.duration || 0;
+                if (!duration) return { ok: false, reason: 'noduration' };
+                const offset = Math.max(0, Math.min(0.995, Number(ratio) || 0)) * duration;
+                const session = activeVoiceSession;
+                if (session && session.audioSources) {
+                    session.audioSources.forEach(src => {
+                        try { src.stop(); } catch (e) {}
+                        try { src.disconnect(); } catch (e) {}
+                    });
+                    session.audioSources.clear();
+                }
+                const ctx = getAudioContext();
+                try { if (ctx.state === 'suspended') await ctx.resume(); } catch (e) {}
+                const source = ctx.createBufferSource();
+                source.buffer = info.buffer;
+                source.connect(ctx.destination);
+                if (session) {
+                    session.audioSources.add(source);
+                    source.onended = () => { try { session.audioSources.delete(source); } catch (e) {} };
+                }
+                source.start(0, offset);
+                if (activeVoicePlaybackStatus === 'paused') activeVoicePlaybackStatus = 'playing';
+                if (messageId && typeof updateVoicePlayerButton === 'function') updateVoicePlayerButton(messageId, 'playing');
+                return { ok: true, offset, duration, at: Date.now() };
+            } catch (e) {
+                return { ok: false, reason: String(e && e.message || e) };
+            }
+        };
+
         function speakText(text, onStart, options = {}) {
             const ttsLang = state.settings.ttsLang || 'japanese';
             const clean = sanitizeTtsText(text, ttsLang === 'chinese');
@@ -607,12 +393,7 @@
                 console.log('[TTS] 同一消息的语音任务仍在进行，复用现有任务');
                 return activeTtsTasks.get(cacheKey);
             }
-            const provider = String(state.settings.ttsProvider || 'minimax');
-            const task = provider === 'doubao'
-                ? speakTextDoubao(clean, onStart, options)
-                : provider === 'dashscope'
-                    ? speakTextDashscope(clean, onStart, options)
-                    : speakTextMinimax(clean, onStart, options);
+            const task = speakTextMinimax(clean, onStart, options);
             if (!cacheKey) return task;
             activeTtsTasks.set(cacheKey, task);
             const clearTask = () => {
@@ -683,23 +464,11 @@
         // ==================== 设置 ====================
 
         function openSettings() {
-            elements.settingApiFormat.value = state.settings.apiFormat || 'openai';
-            elements.settingProviderMode.value = state.settings.providerMode || DEFAULT_SETTINGS.providerMode;
             elements.settingBaseUrl.value = state.settings.baseUrl || DEFAULT_SETTINGS.baseUrl;
-            elements.settingChatModel.value = state.settings.model || DEFAULT_SETTINGS.model;
             elements.settingApiKey.value = state.settings.apiKey;
-            elements.settingTtsProvider.value = state.settings.ttsProvider || 'minimax';
             document.getElementById('settingMinimaxApiKey').value = state.settings.minimaxApiKey || '';
-            document.getElementById('settingMinimaxVoice').value = state.settings.minimaxVoice || '';
+            document.getElementById('settingMinimaxVoice').value = FIXED_MINIMAX_VOICE_ID;
             document.getElementById('settingMinimaxModel').value = state.settings.minimaxModel || 'speech-2.8-hd';
-            document.getElementById('settingDoubaoApiKey').value = state.settings.doubaoApiKey || '';
-            document.getElementById('settingDoubaoAppId').value = state.settings.doubaoAppId || '';
-            document.getElementById('settingDoubaoToken').value = state.settings.doubaoToken || '';
-            document.getElementById('settingDoubaoCluster').value = state.settings.doubaoCluster || 'volcano_tts';
-            document.getElementById('settingDoubaoVoice').value = state.settings.doubaoVoice || 'zh_female_shuangkuaisisi_uranus_bigtts';
-            document.getElementById('settingDoubaoResourceId').value = state.settings.doubaoResourceId || 'seed-tts-2.0';
-            document.getElementById('settingDashscopeTtsModel').value = state.settings.dashscopeTtsModel || 'qwen3-tts-flash';
-            document.getElementById('settingDashscopeTtsVoice').value = state.settings.dashscopeTtsVoice || 'Cherry';
             elements.settingTtsSpeed.value = state.settings.ttsSpeed;
             elements.ttsSpeedLabel.textContent = state.settings.ttsSpeed.toFixed(1) + 'x';
             elements.settingTtsVolume.value = Number(state.settings.ttsVolume ?? 1);
@@ -715,11 +484,9 @@
             });
 
             document.querySelectorAll('input[name="asrProvider"]').forEach(r => {
-                r.checked = (r.value === (state.settings.asrProvider || 'browser'));
+                r.checked = (r.value === (state.settings.asrProvider || 'aliyun'));
             });
-            updateProviderModeUI();
             updateAsrProviderUI();
-            updateTtsProviderUI();
 
             document.getElementById('settingDashscopeApiKey').value = state.settings.dashscopeApiKey || '';
             elements.settingAutoMemory.checked = Boolean(state.settings.autoMemory);
@@ -749,127 +516,8 @@
         }
 
         function updateAsrProviderUI() {
-            const provider = document.querySelector('input[name="asrProvider"]:checked')?.value || 'browser';
+            const provider = document.querySelector('input[name="asrProvider"]:checked')?.value || 'aliyun';
             elements.dashscopeAsrFields.classList.toggle('hidden', provider !== 'aliyun');
-        }
-
-        function updateTtsProviderUI() {
-            const provider = elements.settingTtsProvider?.value || 'minimax';
-            elements.minimaxTtsFields?.classList.toggle('hidden', provider !== 'minimax');
-            elements.doubaoTtsFields?.classList.toggle('hidden', provider !== 'doubao');
-            elements.dashscopeTtsFields?.classList.toggle('hidden', provider !== 'dashscope');
-        }
-
-        function updateProviderModeUI() {
-            const apiFormat = elements.settingApiFormat.value || 'openai';
-            const preset = CHAT_API_FORMATS[apiFormat] || CHAT_API_FORMATS.openai;
-            const direct = elements.settingProviderMode.value === 'direct';
-            if (direct) elements.settingBaseUrl.value = preset.defaultBaseUrl;
-            elements.settingBaseUrl.readOnly = direct;
-            elements.settingChatModel.placeholder = preset.defaultModel;
-            elements.settingApiKey.placeholder = apiFormat === 'ollama'
-                ? '本地服务可留空；远程服务按需填写'
-                : 'sk-...（只保存在本机）';
-            const label = preset.label;
-            elements.providerModeHint.textContent = direct
-                ? `请求从当前设备直接发给 ${label}，不经过作者服务器。Android Key 使用系统 Keystore 加密；Web Key 仅保存在当前标签页会话。`
-                : `请求只发往你填写的 ${label} Base URL；请使用自己信任的服务，并确认它允许浏览器跨域请求。`;
-        }
-
-        function readProviderSettingsForm() {
-            const providerMode = elements.settingProviderMode.value === 'custom-proxy' ? 'custom-proxy' : 'direct';
-            const apiFormat = elements.settingApiFormat.value || 'openai';
-            const preset = CHAT_API_FORMATS[apiFormat] || CHAT_API_FORMATS.openai;
-            return {
-                ...state.settings,
-                apiProvider: DEFAULT_SETTINGS.apiProvider,
-                apiFormat,
-                providerMode,
-                baseUrl: providerMode === 'direct' ? preset.defaultBaseUrl : elements.settingBaseUrl.value.trim(),
-                model: elements.settingChatModel.value.trim() || DEFAULT_SETTINGS.model,
-                apiKey: elements.settingApiKey.value.trim(),
-                minimaxApiKey: document.getElementById('settingMinimaxApiKey')?.value.trim() || '',
-                minimaxVoice: document.getElementById('settingMinimaxVoice')?.value.trim() || '',
-                minimaxModel: document.getElementById('settingMinimaxModel')?.value || 'speech-2.8-hd',
-                ttsProvider: elements.settingTtsProvider?.value || 'minimax',
-                doubaoApiKey: document.getElementById('settingDoubaoApiKey')?.value.trim() || '',
-                doubaoAppId: document.getElementById('settingDoubaoAppId')?.value.trim() || '',
-                doubaoToken: document.getElementById('settingDoubaoToken')?.value.trim() || '',
-                doubaoCluster: document.getElementById('settingDoubaoCluster')?.value.trim() || 'volcano_tts',
-                doubaoVoice: document.getElementById('settingDoubaoVoice')?.value.trim() || 'zh_female_shuangkuaisisi_uranus_bigtts',
-                doubaoResourceId: document.getElementById('settingDoubaoResourceId')?.value || 'seed-tts-2.0',
-                dashscopeTtsModel: document.getElementById('settingDashscopeTtsModel')?.value.trim() || 'qwen3-tts-flash',
-                dashscopeTtsVoice: document.getElementById('settingDashscopeTtsVoice')?.value.trim() || 'Cherry',
-                dashscopeApiKey: document.getElementById('settingDashscopeApiKey')?.value.trim() || ''
-            };
-        }
-
-        async function withSettingsTestButton(button, runningText, callback) {
-            if (!button || button.disabled) return;
-            const originalText = button.textContent;
-            button.disabled = true;
-            button.textContent = runningText;
-            try { await callback(); }
-            catch (error) { showClientApiError(error); }
-            finally { button.disabled = false; button.textContent = originalText; }
-        }
-
-        async function testChatConnection() {
-            await withSettingsTestButton(elements.testChatConnectionBtn, '测试中…', async () => {
-                const draft = readProviderSettingsForm();
-                const reply = await callChatAPI([
-                    { role: 'system', content: '这是连接测试。' },
-                    { role: 'user', content: '只回复 OK' }
-                ], { maxTokens: 8, temperature: 0 }, draft);
-                if (!reply.trim()) throw new ClientApiError('UPSTREAM_UNAVAILABLE', '对话接口返回了空内容');
-                showCustomAlert(`连接成功，模型返回：${reply.trim()}`, '对话连接正常');
-            });
-        }
-
-        async function testTtsConnection() {
-            await withSettingsTestButton(elements.testTtsConnectionBtn, '测试中…', async () => {
-                const draft = readProviderSettingsForm();
-                const provider = String(draft.ttsProvider || 'minimax');
-                if (provider === 'doubao') {
-                    const audio = await generateDoubaoTtsAudio('你好，这是豆包语音连接测试。', draft);
-                    if (!audio?.bytes?.byteLength) throw new ClientApiError('UPSTREAM_UNAVAILABLE', '豆包返回了空音频');
-                    showCustomAlert('豆包已成功返回测试音频，凭据与音色可以使用。', '语音连接正常');
-                    return;
-                }
-                if (provider === 'dashscope') {
-                    const audio = await generateDashscopeTtsAudio('你好，这是阿里千问语音连接测试。', draft);
-                    if (!audio?.bytes?.byteLength) throw new ClientApiError('UPSTREAM_UNAVAILABLE', '阿里千问音频文件为空');
-                    showCustomAlert('阿里千问已成功返回测试音频，Key、模型与音色可以使用。', '语音连接正常');
-                    return;
-                }
-                if (!draft.minimaxApiKey) throw new ClientApiError('APP_KEY_MISSING', '请先填写 MiniMax API Key');
-                if (!draft.minimaxVoice) throw new ClientApiError('BAD_REQUEST', '请先填写自己的 MiniMax 音色 ID');
-                const result = await postJsonFromDevice(MINIMAX_TTS_HTTP, {
-                    model: draft.minimaxModel,
-                    text: 'こんにちは、接続テストです。',
-                    stream: false,
-                    language_boost: 'Japanese',
-                    voice_setting: { voice_id: draft.minimaxVoice, speed: 1, vol: 1, pitch: 0 },
-                    audio_setting: { sample_rate: 24000, bitrate: 128000, format: 'mp3', channel: 1 }
-                }, { Authorization: `Bearer ${draft.minimaxApiKey}` });
-                if (!result.ok || Number(result.payload?.base_resp?.status_code || 0) !== 0) {
-                    await throwProviderResponseError(result, 'MiniMax 语音连接测试失败');
-                }
-                if (!String(result.payload?.data?.audio || '')) throw new ClientApiError('UPSTREAM_UNAVAILABLE', 'MiniMax 返回了空音频');
-                showCustomAlert('MiniMax 已成功返回测试音频，Key、模型与音色 ID 可以使用。', '语音连接正常');
-            });
-        }
-
-        async function clearApiKeys() {
-            const confirmed = await showCustomConfirm('确认清除这台设备上保存的 DeepSeek、MiniMax、豆包与 DashScope API Key？');
-            if (!confirmed) return;
-            await clearStoredApiSecrets();
-            elements.settingApiKey.value = '';
-            document.getElementById('settingMinimaxApiKey').value = '';
-            document.getElementById('settingDoubaoApiKey').value = '';
-            document.getElementById('settingDoubaoToken').value = '';
-            document.getElementById('settingDashscopeApiKey').value = '';
-            showCustomAlert('API Key 已从当前设备清除。', '已清除');
         }
 
         function updateSliderFill(slider) {
@@ -881,31 +529,29 @@
             slider.style.setProperty('--slider-progress', `${Math.max(0, Math.min(100, percent))}%`);
         }
 
-        async function saveSettings() {
-            const asrProvider = document.querySelector('input[name="asrProvider"]:checked')?.value || 'browser';
+        function saveSettings() {
+            const asrProvider = 'aliyun';
             const ttsLang = document.querySelector('input[name="ttsLang"]:checked')?.value || 'chinese';
             const replyDisplayMode = document.querySelector('input[name="replyDisplayMode"]:checked')?.value || DEFAULT_SETTINGS.replyDisplayMode;
-            const providerSettings = readProviderSettingsForm();
-            if (!providerSettings.baseUrl) {
-                showCustomAlert('自定义模式下必须填写 API Base URL。', '设置未保存');
-                return;
-            }
+
             state.settings = {
-                ...providerSettings,
+                ...state.settings,
+                apiProvider: DEFAULT_SETTINGS.apiProvider,
+                baseUrl: elements.settingBaseUrl.value.trim() || DEFAULT_SETTINGS.baseUrl,
+                apiKey: elements.settingApiKey.value.trim(),
+                model: DEFAULT_SETTINGS.model,
+                minimaxApiKey: document.getElementById('settingMinimaxApiKey')?.value.trim() || '',
+                minimaxVoice: FIXED_MINIMAX_VOICE_ID,
+                minimaxModel: document.getElementById('settingMinimaxModel')?.value || 'speech-2.8-hd',
                 ttsSpeed: parseFloat(elements.settingTtsSpeed.value) || 1.0,
                 ttsVolume: Math.max(0, Math.min(2, parseFloat(elements.settingTtsVolume.value) || 0)),
                 ttsLang,
                 replyDisplayMode,
                 asrProvider,
+                dashscopeApiKey: document.getElementById('settingDashscopeApiKey')?.value.trim() || '',
                 autoMemory: elements.settingAutoMemory.checked,
                 memoryEvery: Math.max(3, Math.min(50, parseInt(elements.settingMemoryEvery.value, 10) || 6))
             };
-            try {
-                await saveApiSecrets(state.settings);
-            } catch (error) {
-                showCustomAlert('无法写入设备安全存储，本次设置没有保存。', '保存失败');
-                return;
-            }
             persistSettings();
 
             state.characterCard = {
@@ -1042,6 +688,7 @@
             let slots = getCharacterCardSlots();
             const existingIndex = slots.findIndex(s => normalizeSlotSignature(s) === signature);
             if (existingIndex >= 0) {
+                // 完全相同：把旧槽位移到最前
                 const [existing] = slots.splice(existingIndex, 1);
                 slots.unshift(existing);
             } else {
@@ -1082,10 +729,9 @@
 
         // ==================== 初始化====================
 
-        async function init() {
-            syncViewportHeight();
+        function init() {
+            syncViewportHeight({ preferWindowHeight: true });
             loadSettings();
-            await loadApiSecrets();
             loadCharacterCard();
             loadUserIdentity();
             loadConversations();
@@ -1117,21 +763,6 @@
                 if (e.target === elements.settingsOverlay) closeSettingsPanel();
             });
             elements.saveSettings.addEventListener('click', saveSettings);
-            elements.settingApiFormat.addEventListener('change', () => {
-                const apiFormat = elements.settingApiFormat.value || 'openai';
-                const preset = CHAT_API_FORMATS[apiFormat] || CHAT_API_FORMATS.openai;
-                const currentBaseUrl = elements.settingBaseUrl.value.trim();
-                const usesDefault = !currentBaseUrl || Object.values(CHAT_API_FORMATS).some(format => format.defaultBaseUrl === currentBaseUrl);
-                if (elements.settingProviderMode.value === 'direct' || usesDefault) {
-                    elements.settingBaseUrl.value = preset.defaultBaseUrl;
-                }
-                updateProviderModeUI();
-            });
-            elements.settingProviderMode.addEventListener('change', updateProviderModeUI);
-            elements.settingTtsProvider.addEventListener('change', updateTtsProviderUI);
-            elements.testChatConnectionBtn.addEventListener('click', testChatConnection);
-            elements.testTtsConnectionBtn.addEventListener('click', testTtsConnection);
-            elements.clearApiKeysBtn.addEventListener('click', clearApiKeys);
             elements.announcementConfirmBtn.addEventListener('click', closeAnnouncement);
             elements.announcementSkipBtn?.addEventListener('click', dismissAnnouncement);
             elements.announcementOverlay.addEventListener('click', (event) => {
@@ -1164,9 +795,13 @@
 
             elements.initialTextInput.addEventListener('input', updateComposerSendVisibility);
             elements.textInput.addEventListener('input', updateComposerSendVisibility);
-            [elements.initialTextInput, elements.textInput].forEach(input => {
-                input.addEventListener('focus', () => keepFocusedComposerVisible(input));
+            elements.initialTextInput.addEventListener('focus', () => {
+                captureInitialComposerViewportBaseline();
             });
+            elements.initialTextInput.addEventListener('blur', () => {
+                scheduleViewportRecovery();
+            });
+            elements.textInput.addEventListener('focus', () => keepFocusedComposerVisible(elements.textInput));
             elements.initialComposerMoreBtn.addEventListener('click', (event) => {
                 event.stopPropagation();
                 toggleComposerToolsMenu(elements.initialComposerMoreBtn, elements.initialComposerMoreMenu, elements.initialComposerThinkingToggle);
@@ -1364,6 +999,7 @@
             elements.mobileSidebarClose.addEventListener('click', closeSidebarDrawer);
             elements.sidebarOverlay.addEventListener('click', closeSidebarDrawer);
             elements.folderList.addEventListener('scroll', closeConversationContextMenu, { passive: true });
+            elements.diaryGrid.parentElement.addEventListener('scroll', closeConversationContextMenu, { passive: true });
             if (elements.conversationHistory) {
                 elements.conversationHistory.addEventListener('scroll', () => {
                     closeMessageContextMenu();
@@ -1431,12 +1067,107 @@
             elements.sidebarOverlay.classList.remove('hidden');
         }
 
-        function syncViewportHeight() {
+        let viewportRecoveryGeneration = 0;
+        let initialComposerViewportBaseline = 0;
+        let initialComposerViewportWidth = 0;
+
+        function isViewportTextEntryFocused() {
+            const active = document.activeElement;
+            if (!active) return false;
+            return active.matches?.('input, textarea, [contenteditable="true"]') || false;
+        }
+
+        function resetInitialComposerKeyboardState() {
+            initialComposerViewportBaseline = 0;
+            initialComposerViewportWidth = 0;
+            document.body.classList.remove('initial-keyboard-tracking');
+            document.body.classList.remove('initial-keyboard-visible');
+            document.documentElement.style.setProperty('--initial-keyboard-inset', '0px');
+        }
+
+        function captureInitialComposerViewportBaseline() {
+            if (window.innerWidth > 860) {
+                resetInitialComposerKeyboardState();
+                return;
+            }
             const viewport = window.visualViewport;
-            const viewportHeight = viewport?.height || window.innerHeight;
-            const viewportTop = window.innerWidth <= 860 ? Math.max(0, viewport?.offsetTop || 0) : 0;
+            initialComposerViewportBaseline = Math.max(
+                Number(window.innerHeight) || 0,
+                Number(viewport?.height) || 0
+            );
+            initialComposerViewportWidth = Number(viewport?.width) || Number(window.innerWidth) || 0;
+            document.body.classList.add('initial-keyboard-tracking');
+            document.documentElement.style.setProperty('--initial-stable-height', `${Math.round(initialComposerViewportBaseline)}px`);
+            document.documentElement.style.setProperty('--initial-keyboard-inset', '0px');
+            syncViewportHeight();
+        }
+
+        function syncInitialComposerKeyboardState(viewportHeight) {
+            const initialInputFocused = document.activeElement === elements.initialTextInput && window.innerWidth <= 860;
+            const trackingInitialKeyboard = window.innerWidth <= 860 && initialComposerViewportBaseline > 0;
+            if (!initialInputFocused && !trackingInitialKeyboard) {
+                document.body.classList.remove('initial-keyboard-visible');
+                document.documentElement.style.setProperty('--initial-keyboard-inset', '0px');
+                return;
+            }
+            const viewportWidth = Number(window.visualViewport?.width) || Number(window.innerWidth) || 0;
+            if (!initialComposerViewportBaseline || Math.abs(viewportWidth - initialComposerViewportWidth) > 48) {
+                initialComposerViewportBaseline = Math.max(viewportHeight, Number(window.innerHeight) || 0);
+                initialComposerViewportWidth = viewportWidth;
+            } else if (viewportHeight > initialComposerViewportBaseline) {
+                initialComposerViewportBaseline = viewportHeight;
+            }
+            const keyboardInset = Math.max(0, initialComposerViewportBaseline - viewportHeight);
+            const keyboardThreshold = Math.max(96, Math.round(initialComposerViewportBaseline * 0.15));
+            const keyboardWasVisible = document.body.classList.contains('initial-keyboard-visible');
+            const keyboardVisible = keyboardWasVisible
+                ? keyboardInset > 8
+                : initialInputFocused && keyboardInset > keyboardThreshold;
+            document.documentElement.style.setProperty('--initial-stable-height', `${Math.round(initialComposerViewportBaseline)}px`);
+            document.documentElement.style.setProperty('--initial-keyboard-inset', `${Math.round(keyboardInset)}px`);
+            if (!initialInputFocused && !keyboardVisible) {
+                resetInitialComposerKeyboardState();
+                return;
+            }
+            document.body.classList.toggle('initial-keyboard-visible', keyboardVisible);
+        }
+
+        function syncViewportHeight(options = {}) {
+            const viewport = window.visualViewport;
+            const textEntryFocused = isViewportTextEntryFocused();
+            const preferWindowHeight = Boolean(options.preferWindowHeight) && !textEntryFocused;
+            const visualHeight = Number(viewport?.height) || 0;
+            const windowHeight = Number(window.innerHeight) || 0;
+            const wideAndroidViewport = ANDROID_GATEWAY_CLIENT && window.innerWidth > 860;
+            const viewportHeight = wideAndroidViewport
+                ? (visualHeight || windowHeight)
+                : (!textEntryFocused || preferWindowHeight
+                    ? Math.max(windowHeight, visualHeight)
+                    : (visualHeight || windowHeight));
+            const observedViewportHeight = visualHeight || windowHeight;
+            const viewportTop = window.innerWidth <= 860 && textEntryFocused && !preferWindowHeight
+                ? Math.max(0, viewport?.offsetTop || 0)
+                : 0;
             if (viewportHeight) document.documentElement.style.setProperty('--app-height', `${Math.round(viewportHeight)}px`);
             document.documentElement.style.setProperty('--viewport-offset-top', `${Math.round(viewportTop)}px`);
+            if (!initialComposerViewportBaseline && !textEntryFocused && viewportHeight) {
+                document.documentElement.style.setProperty('--initial-stable-height', `${Math.round(viewportHeight)}px`);
+            }
+            syncInitialComposerKeyboardState(observedViewportHeight);
+        }
+
+        function scheduleViewportRecovery() {
+            const generation = ++viewportRecoveryGeneration;
+            requestAnimationFrame(() => {
+                if (generation !== viewportRecoveryGeneration) return;
+                syncViewportHeight();
+            });
+            [120, 320].forEach(delay => {
+                setTimeout(() => {
+                    if (generation !== viewportRecoveryGeneration) return;
+                    syncViewportHeight({ preferWindowHeight: true });
+                }, delay);
+            });
         }
 
         function keepFocusedComposerVisible(input) {
