@@ -338,7 +338,7 @@
             return t.trim();
         }
 
-        /* ---- 语音 Seek（QQ 式：长按放大拖动进度条）---- */
+        /* ---- 语音 Seek（QQ 式：长按放大，按住声纹拖动跳转）---- */
         window.__voiceSeekInfo = () => {
             try {
                 if (!window.__voiceInfo) return { ok: false, duration: 0 };
@@ -351,27 +351,24 @@
                 if (!info || !info.buffer) return { ok: false, reason: 'buffering' };
                 const duration = info.duration || info.buffer.duration || 0;
                 if (!duration) return { ok: false, reason: 'noduration' };
-                const offset = Math.max(0, Math.min(0.995, Number(ratio) || 0)) * duration;
-                const session = activeVoiceSession;
-                if (session && session.audioSources) {
-                    session.audioSources.forEach(src => {
-                        try { src.stop(); } catch (e) {}
-                        try { src.disconnect(); } catch (e) {}
-                    });
-                    session.audioSources.clear();
-                }
+                const offset = Math.max(0, Math.min(0.999, Number(ratio) || 0)) * duration;
+                /* 干净清场：停止旧源/终结旧 onEnd 链/关闭旧 context（避免 seek 后旧回调杀掉新播放） */
+                await stopActiveVoicePlayback();
                 const ctx = getAudioContext();
                 try { if (ctx.state === 'suspended') await ctx.resume(); } catch (e) {}
                 const source = ctx.createBufferSource();
                 source.buffer = info.buffer;
                 source.connect(ctx.destination);
-                if (session) {
-                    session.audioSources.add(source);
-                    source.onended = () => { try { session.audioSources.delete(source); } catch (e) {} };
-                }
+                source.onended = () => {
+                    try { updateVoicePlayerButton(String(messageId || ''), 'idle'); } catch (e) {}
+                    try { activeVoicePlaybackStatus = 'idle'; activeVoicePlayerId = null; } catch (e) {}
+                };
                 source.start(0, offset);
-                if (activeVoicePlaybackStatus === 'paused') activeVoicePlaybackStatus = 'playing';
-                if (messageId && typeof updateVoicePlayerButton === 'function') updateVoicePlayerButton(messageId, 'playing');
+                if (messageId) {
+                    activeVoicePlayerId = messageId;
+                    activeVoicePlaybackStatus = 'playing';
+                    try { updateVoicePlayerButton(messageId, 'playing'); } catch (e) {}
+                }
                 return { ok: true, offset, duration, at: Date.now() };
             } catch (e) {
                 return { ok: false, reason: String(e && e.message || e) };

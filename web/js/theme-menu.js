@@ -208,49 +208,46 @@
     apply(initial, false);
   }, 'settings nav');
 
-  /* ---- 6) QQ 式语音长按放大 + 拖动调节进度 ---- */
+  /* ---- 6) 语音 seek：长按放大 → 声纹分段（已播/未播）→ 按住拖动跳转 ---- */
   safe(() => {
     let pressTimer = null;
     let seeking = false;
     let suppressed = false;
     let startX = 0, startY = 0;
-    let card = null;
+    let card = null, wf = null, msgId = null;
     let ratio = 0;
     let progressTimer = null;
-    let msgId = null;
 
-    const fmt = (sec) => {
-      const m = Math.floor(sec / 60), s = Math.floor(sec % 60);
-      return m + ':' + String(s).padStart(2, '0');
+    const SPIKES = 15;
+    const buildSpikes = (waveEl) => {
+      const svg = waveEl.querySelector('svg');
+      if (!svg) return;
+      const d = svg.querySelector('path') ? svg.querySelector('path').getAttribute('d') : '';
+      const heights = [];
+      const re = /M (\d+(?:\.\d+)?) ([\d.]+) v ([\d.]+)/g;
+      let m;
+      while ((m = re.exec(d)) && heights.length < SPIKES) heights.push(parseFloat(m[3]));
+      const wrap = document.createElement('span');
+      wrap.className = 'wf-spikes';
+      for (let i = 0; i < SPIKES; i++) {
+        const h = heights[i] || 8;
+        const sp = document.createElement('i');
+        sp.className = 'wf-spike';
+        sp.style.height = (h / 22 * 100) + '%';
+        wrap.appendChild(sp);
+      }
+      svg.replaceWith(wrap);
     };
-    const buildBar = (c) => {
-      c.insertAdjacentHTML('beforeend',
-        '<div class="voice-seek-bar">' +
-        '<span class="voice-seek-time sw-seek-cur">0:00</span>' +
-        '<div class="voice-seek-track"><div class="voice-seek-fill"></div><div class="voice-seek-thumb"></div></div>' +
-        '<span class="voice-seek-time sw-seek-total">0:00</span>' +
-        '</div>' +
-        '<div class="voice-seek-hint">拖动调节进度</div>');
-      return c.querySelector('.voice-seek-bar');
+    const applyRatio = (r) => {
+      if (!wf) return;
+      const n = Math.round(r * SPIKES);
+      const spikes = wf.querySelectorAll('.wf-spike');
+      spikes.forEach((s, i) => s.classList.toggle('on', i < n));
     };
-    const updateUI = (r) => {
-      const track = card.querySelector('.voice-seek-track');
-      if (!track) return;
-      const w = track.getBoundingClientRect().width;
-      const x = r * w;
-      const fill = card.querySelector('.voice-seek-fill');
-      const thumb = card.querySelector('.voice-seek-thumb');
-      if (fill) fill.style.width = (r * 100) + '%';
-      if (thumb) thumb.style.left = Math.max(-9, Math.min(w - 9, x)) + 'px';
-      const info = window.__voiceSeekInfo ? window.__voiceSeekInfo() : { duration: 0 };
-      const d = info.duration || 0;
-      const cur = card.querySelector('.sw-seek-cur');
-      if (cur) cur.textContent = fmt(r * d);
-    };
+    const wfRect = () => wf ? wf.getBoundingClientRect() : null;
     const ratioFromEvent = (ev) => {
-      const track = card.querySelector('.voice-seek-track');
-      if (!track) return 0;
-      const rect = track.getBoundingClientRect();
+      const rect = wfRect();
+      if (!rect) return 0;
       const x = (ev.touches ? ev.touches[0].clientX : ev.clientX) - rect.left;
       return Math.max(0, Math.min(1, x / Math.max(1, rect.width)));
     };
@@ -258,72 +255,55 @@
       if (!(window.TouchEvent && ev.type === 'touchstart') && ev.type !== 'mousedown') return;
       const c = target.closest('.ai-voice-card');
       if (!c || seeking) return;
-      const inBar = target.closest('.voice-seek-bar');
-      if (inBar) return;
       card = c;
+      wf = card.querySelector('.voice-waveform');
+      if (!wf) return;
       const btn = card.querySelector('[id^="voice-player-"]');
       msgId = btn ? btn.id.replace('voice-player-', '') : null;
+      if (!btn) return;
       startX = (ev.touches ? ev.touches[0].clientX : ev.clientX);
       startY = (ev.touches ? ev.touches[0].clientY : ev.clientY);
       pressTimer = setTimeout(() => {
         pressTimer = null;
         seeking = true;
         suppressed = true;
+        if (!wf.querySelector('.wf-spikes')) buildSpikes(wf);
         card.classList.add('voice-zoomed');
-        if (!card.querySelector('.voice-seek-bar')) buildBar(card);
-        const info = window.__voiceSeekInfo ? window.__voiceSeekInfo() : { ok: false, duration: 0 };
-        const totalEl = card.querySelector('.sw-seek-total');
-        if (totalEl && info.duration) totalEl.textContent = fmt(info.duration);
-        ratio = 0;
-        updateUI(0);
+        ratio = 0; applyRatio(0);
       }, 480);
     };
     const pressMove = (ev) => {
-      if (!seeking || !card) return;
+      if (!seeking || !card || !wf) return;
       const x = (ev.touches ? ev.touches[0].clientX : ev.clientX);
       const y = (ev.touches ? ev.touches[0].clientY : ev.clientY);
-      if (Math.abs(x - startX) > 10 || Math.abs(y - startY) > 10) {
-        const track = card.querySelector('.voice-seek-track');
-        if (track) {
-          ev.preventDefault();
-          ratio = ratioFromEvent(ev);
-          updateUI(ratio);
-        }
+      if (Math.abs(x - startX) > 6 || Math.abs(y - startY) > 6) {
+        if (ev.cancelable) ev.preventDefault();
+        ratio = ratioFromEvent(ev);
+        applyRatio(ratio);
       }
     };
-    const pressEnd = (ev) => {
+    const pressEnd = () => {
       if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
-      if (!seeking || !card) {
-        if (pressTimer === null) { suppressed = false; }
-        return;
-      }
+      if (!seeking || !card) { if (pressTimer === null) suppressed = false; return; }
       const c = card;
-      card = null;
-      seeking = false;
+      card = null; seeking = false;
+      const r = ratio;
       const info = window.__voiceSeekInfo ? window.__voiceSeekInfo() : { ok: false };
       if (info.ok) {
-        try { window.__voiceSeek(ratio, msgId); } catch (e) {}
+        try { window.__voiceSeek(r, msgId); } catch (e) {}
         const d = info.duration || 0;
         const at = Date.now();
         progressTimer = setInterval(() => {
           const el = (Date.now() - at) / 1000;
-          const r2 = Math.min(1, (((ratio * d) + el) / d));
-          const f2 = c.querySelector('.voice-seek-fill');
-          const t2 = c.querySelector('.voice-seek-thumb');
-          const track2 = c.querySelector('.voice-seek-track');
-          if (f2) f2.style.width = (r2 * 100) + '%';
-          if (t2 && track2) t2.style.left = Math.max(-9, Math.min(track2.getBoundingClientRect().width - 9, r2 * track2.getBoundingClientRect().width)) + 'px';
-          const cur = c.querySelector('.sw-seek-cur');
-          if (cur) cur.textContent = fmt(r2 * d);
+          const r2 = Math.min(1, ((r * d) + el) / Math.max(0.001, d));
+          applyRatio(r2);
           if (r2 >= 1) { clearInterval(progressTimer); progressTimer = null; }
         }, 300);
       }
-      setTimeout(() => { c.classList.remove('voice-zoomed'); }, 1400);
+      setTimeout(() => { c.classList.remove('voice-zoomed'); }, 1300);
       setTimeout(() => { suppressed = false; }, 200);
     };
-    const pressCancel = () => {
-      if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
-    };
+    const pressCancel = () => { if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; } };
     let lastTouchTs = 0;
     const onTouchStart = (ev) => { lastTouchTs = Date.now(); pressStart(ev, ev.target); };
     const onMouseDown = (ev) => { if (Date.now() - lastTouchTs < 500) return; pressStart(ev, ev.target); };
@@ -338,7 +318,6 @@
       if (suppressed) { ev.stopPropagation(); ev.preventDefault(); }
     }, true);
   }, 'voice seek');
-
 
   /* ---- 7) 外观模板选择器（设置·外观 Finder 色板栏） ---- */
   safe(() => {

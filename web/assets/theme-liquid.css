@@ -1940,3 +1940,41 @@ html[data-theme="dark"] #mainContent > header {
   border-bottom-color: rgba(255,255,255,0.09) !important;
   box-shadow: 0 1px 0 rgba(0,0,0,0.25) !important;
 }
+
+/* ============================================================
+   v6.3 语音声纹分段（已播/未播）+ 深色名字胶囊
+   ============================================================ */
+/* 深色：名字胶囊深玻璃（原米棕 #e2d3cc 亮底） */
+html[data-theme="dark"] .ai-speaker-name {
+  background: rgba(255, 255, 255, 0.12) !important;
+  border: 1px solid rgba(255, 255, 255, 0.16) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08) !important;
+}
+html[data-theme="dark"] .bubble-ai .ai-speaker-name { color: #8ec2ff !important; }
+html[data-theme-template="claude"][data-theme="dark"] .bubble-ai .ai-speaker-name { color: #f0a684 !important; }
+html[data-theme-template="sage"][data-theme="dark"] .bubble-ai .ai-speaker-name { color: #8fd4b2 !important; }
+html[data-theme-template="sakura"][data-theme="dark"] .bubble-ai .ai-speaker-name { color: #f5aec2 !important; }
+/* 声纹 spans（替换 svg 后） */
+.voice-waveform .wf-spikes {
+  display: flex !important;
+  align-items: center !important;
+  gap: 2px !important;
+  width: 58px !important;
+  height: 22px !important;
+}
+.voice-waveform .wf-spike {
+  flex: 0 0 auto !important;
+  display: block !important;
+  width: 1.8px !important;
+  border-radius: 2px !important;
+  background: rgba(96, 116, 145, 0.34) !important;
+  transition: background .14s linear, box-shadow .14s linear;
+}
+html[data-theme="dark"] .voice-waveform .wf-spike { background: rgba(255, 255, 255, 0.20) !important; }
+.voice-waveform .wf-spike.on { background: var(--lg-primary) !important; }
+html[data-theme="dark"] .voice-waveform .wf-spike.on { background: #6db1ff !important; }
+html[data-theme-template="claude"] .voice-waveform .wf-spike.on { background: var(--lg-primary) !important; }
+/* 放大态细节 */
+.ai-voice-card.voice-zoomed .voice-waveform svg { transform: none; }
+.ai-voice-card.voice-zoomed .voice-waveform .wf-spikes { filter: drop-shadow(0 1px 3px rgba(0,0,0,0.15)); }
+html[data-theme="dark"] .ai-voice-card.voice-zoomed .voice-waveform .wf-spike.on { background: #5ca8ff !important; }
