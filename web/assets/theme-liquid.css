@@ -1114,3 +1114,139 @@ html[data-theme="dark"] #settingsPanel > div:first-child,
 html[data-theme="dark"] #settingsPanel > div:last-child {
   background: rgba(255, 255, 255, 0.05) !important;
 }
+
+/* ============================================================
+   v5.5 对比度分层（浅色更亮 / 深色更分明，杜绝"同一色复用"）
+   ============================================================ */
+/* 用户气泡：浅色=白玻璃深字（app.css 白字 !important 被反杀） */
+html:not([data-theme="dark"]) .bubble-user .text-indigo-800 { color: #1f2b40 !important; }
+html:not([data-theme="dark"]) .bubble-user .message-action-btn { color: #5d6b82 !important; }
+html:not([data-theme="dark"]) .bubble-user .text-indigo-900 { color: #1f2b40 !important; }
+/* 会话操作图标按钮：独立凸起（浅色白钮深icon / 深色亮钮亮icon） */
+#folderList .conversation-inline-actions button {
+  background: rgba(255, 255, 255, 0.92) !important;
+  border: 1px solid rgba(255, 255, 255, 1) !important;
+  outline: 1px solid rgba(84, 102, 130, 0.22);
+  box-shadow:
+    0 3px 10px rgba(18, 30, 50, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 1) !important;
+}
+#folderList .conversation-inline-actions button svg { color: #52617c !important; }
+#folderList .conversation-inline-actions button svg.text-pink-500,
+#folderList .conversation-inline-actions button svg.text-amber-500 { color: var(--lg-primary) !important; }
+#folderList .conversation-inline-actions button:hover {
+  background: #ffffff !important;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(18, 30, 50, 0.12), inset 0 1px 0 rgba(255, 255, 255, 1) !important;
+}
+html[data-theme="dark"] #folderList .conversation-inline-actions button {
+  background: rgba(255, 255, 255, 0.14) !important;
+  border-color: rgba(255, 255, 255, 0.22) !important;
+  outline-color: rgba(0, 0, 0, 0.4);
+  box-shadow:
+    0 3px 10px rgba(0, 0, 0, 0.25),
+    inset 0 1px 0 rgba(255, 255, 255, 0.10) !important;
+}
+html[data-theme="dark"] #folderList .conversation-inline-actions button svg { color: #c4cede !important; }
+/* 侧栏搜索框：更白底+明确占位符 */
+#sidebar .sidebar-search-field .modal-input,
+#sidebar .modal-input {
+  background: rgba(255, 255, 255, 0.85) !important;
+  border: 1px solid rgba(255, 255, 255, 1) !important;
+  outline: 1px solid rgba(84, 102, 130, 0.18);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 1), 0 3px 10px rgba(18, 30, 50, 0.05) !important;
+}
+#sidebar .sidebar-search-field .modal-input::placeholder,
+#sidebar .modal-input::placeholder { color: #818ca1 !important; }
+html[data-theme="dark"] #sidebar .sidebar-search-field .modal-input,
+html[data-theme="dark"] #sidebar .modal-input {
+  background: rgba(255, 255, 255, 0.14) !important;
+  border-color: rgba(255, 255, 255, 0.22) !important;
+}
+html[data-theme="dark"] #sidebar .sidebar-search-field .modal-input::placeholder,
+html[data-theme="dark"] #sidebar .modal-input::placeholder { color: #98a3b6 !important; }
+
+/* ============================================================
+   v5.6 Finder 顶栏：分段导航 + 分块切换 + 滑动动画
+   （theme-menu.js 注入 .sw-setting-nav）
+   ============================================================ */
+.sw-setting-nav {
+  display: flex !important;
+  align-items: center !important;
+  gap: 4px !important;
+  padding: 6px !important;
+  margin: 0 0 16px !important;
+  border-radius: 14px !important;
+  background: rgba(255, 255, 255, 0.45) !important;
+  border: 1px solid rgba(255, 255, 255, 0.85) !important;
+  outline: 1px solid var(--lg-hairline-inner);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 4px 14px rgba(18, 30, 50, 0.05) !important;
+  position: sticky !important;
+  top: 0 !important;
+  z-index: 5 !important;
+  backdrop-filter: blur(18px) saturate(1.5);
+  -webkit-backdrop-filter: blur(18px) saturate(1.5);
+}
+html[data-theme="dark"] .sw-setting-nav {
+  background: rgba(255, 255, 255, 0.08) !important;
+  border-color: rgba(255, 255, 255, 0.14) !important;
+  outline-color: rgba(0, 0, 0, 0.4);
+}
+.sw-setting-nav .sw-seg {
+  flex: 1 1 auto !important;
+  min-height: 38px !important;
+  padding: 0 10px !important;
+  border: 0 !important;
+  border-radius: 10px !important;
+  background: transparent !important;
+  color: var(--lg-ink-soft) !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  white-space: nowrap !important;
+  -webkit-tap-highlight-color: transparent !important;
+  transition: background .18s ease, color .18s ease, transform .18s var(--lg-ease-spring);
+}
+.sw-setting-nav .sw-seg:hover { background: rgba(255, 255, 255, 0.55) !important; }
+.sw-setting-nav .sw-seg.active {
+  background: #ffffff !important;
+  color: var(--lg-primary) !important;
+  box-shadow: 0 3px 10px rgba(18, 30, 50, 0.10), inset 0 1px 0 rgba(255, 255, 255, 1) !important;
+}
+html[data-theme="dark"] .sw-setting-nav .sw-seg:hover { background: rgba(255, 255, 255, 0.10) !important; }
+html[data-theme="dark"] .sw-setting-nav .sw-seg.active {
+  background: rgba(255, 255, 255, 0.16) !important;
+  color: #5ca8ff !important;
+}
+/* 分块切换动画 */
+.sw-tab-anim { animation: sw-tab-in-.28s var(--lg-ease-spring) both; }
+@keyframes sw-tab-in- { 0% { opacity: 0; transform: translateY(12px); } 100% { opacity: 1; transform: translateY(0); } }
+.sw-tab-anim-r { animation: sw-tab-in-r .28s var(--lg-ease-spring) both; }
+@keyframes sw-tab-in-r { 0% { opacity: 0; transform: translateX(-18px); } 100% { opacity: 1; transform: translateX(0); } }
+.sw-tab-anim-l { animation: sw-tab-in-l .28s var(--lg-ease-spring) both; }
+@keyframes sw-tab-in-l { 0% { opacity: 0; transform: translateX(18px); } 100% { opacity: 1; transform: translateX(0); } }
+
+/* ============================================================
+   v5.7 移动端特化
+   ============================================================ */
+@media (max-width: 480px) {
+  #settingsPanel {
+    max-width: 100% !important;
+    width: 100% !important;
+    border-radius: 20px !important;
+    max-height: 92vh !important;
+    margin: 0 !important;
+  }
+  #settingsContent { padding: 12px 14px 18px !important; }
+  #settingsContent > section { padding: 12px 12px 14px !important; }
+  .sw-setting-nav { overflow-x: auto !important; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+  .sw-setting-nav::-webkit-scrollbar { display: none; }
+  .sw-setting-nav .sw-seg { flex: 0 0 auto !important; padding: 0 14px !important; }
+  .btn-primary, .btn-secondary, .glass-button, .sw-menu-btn { min-height: 48px !important; }
+  .sw-menu { min-width: min(238px, calc(100vw - 28px)) !important; }
+  .modal-panel { border-radius: 20px !important; }
+  .bubble-user, .bubble-ai { border-radius: 18px !important; }
+  .header-memory-btn { min-height: 42px !important; }
+}
+@media (hover: none) {
+  .sw-setting-nav .sw-seg:active { transform: scale(.96); }
+}

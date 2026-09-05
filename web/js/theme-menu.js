@@ -156,4 +156,55 @@
     });
     syncThemeUI();
   }, 'theme settings row');
+
+  /* ---- 5) Finder 顶栏：设置分段导航 + 分块切换 + 滑动动画 ---- */
+  safe(() => {
+    const content = document.getElementById('settingsContent');
+    if (!content || content.querySelector('.sw-setting-nav')) return;
+    const secs = Array.from(content.querySelectorAll(':scope > section'));
+    if (secs.length < 3) return;
+    // 分组（按注入后的静态顺序）
+    const groups = [
+      { label: '外观', idx: [0] },
+      { label: '连接', idx: [1, 3] },
+      { label: '语音', idx: [2] },
+      { label: '记忆与日志', idx: [4, 5] },
+      { label: '角色设定', idx: [6] }
+    ];
+    const nav = document.createElement('div');
+    nav.className = 'sw-setting-nav';
+    content.insertBefore(nav, content.firstChild);
+    const segs = [];
+    let prev = 0;
+    const apply = (gi, animate) => {
+      const visible = new Set(groups[gi].idx);
+      secs.forEach((s, si) => {
+        const show = visible.has(si);
+        const old = s.classList.contains('hidden');
+        if (show) s.classList.remove('hidden');
+        else s.classList.add('hidden');
+        if (show && animate) {
+          s.classList.remove('sw-tab-anim-r', 'sw-tab-anim-l', 'sw-tab-anim');
+          if (gi > prev) { s.classList.add('sw-tab-anim-l'); void s.offsetWidth; }
+          else if (gi < prev) { s.classList.add('sw-tab-anim-r'); void s.offsetWidth; }
+          else { s.classList.add('sw-tab-anim'); void s.offsetWidth; }
+        }
+      });
+      segs.forEach((seg, si) => seg.classList.toggle('active', si === gi));
+      prev = gi;
+      try { localStorage.setItem('elaina_settings_tab', String(gi)); } catch (e) {}
+    };
+    groups.forEach((g, gi) => {
+      const seg = document.createElement('button');
+      seg.type = 'button';
+      seg.className = 'sw-seg';
+      seg.textContent = g.label;
+      seg.addEventListener('click', () => { if (!seg.classList.contains('active')) apply(gi, true); });
+      nav.appendChild(seg);
+      segs.push(seg);
+    });
+    let initial = 0;
+    try { const t = parseInt(localStorage.getItem('elaina_settings_tab') || '0', 10); if (!isNaN(t) && t >= 0 && t < groups.length) initial = t; } catch (e) {}
+    apply(initial, false);
+  }, 'settings nav');
 })();
