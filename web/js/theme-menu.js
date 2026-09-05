@@ -339,4 +339,48 @@
     }, true);
   }, 'voice seek');
 
+
+  /* ---- 7) 外观模板选择器（设置·外观 Finder 色板栏） ---- */
+  safe(() => {
+    const sec = document.getElementById('themeSettingSection');
+    const row = document.getElementById('themeSettingRow');
+    if (!sec || !row || document.getElementById('themeThemePicker')) return;
+    const TEMPLATES = [
+      { id: 'ios', name: 'iOS 蓝', dots: ['#007aff', '#8ab4ff', '#eef1f5'] },
+      { id: 'claude', name: '陶土橙', dots: ['#d97757', '#eab38f', '#f6f2ed'] },
+      { id: 'sage', name: '鼠尾草', dots: ['#4f9d7d', '#9cc9b4', '#eef3ee'] },
+      { id: 'sakura', name: '樱花桃', dots: ['#d97b93', '#f0b6c4', '#f8f1f3'] }
+    ];
+    const TPL_KEY = 'elaina_theme_template';
+    const currentTpl = () => {
+      try { const v = document.documentElement.getAttribute('data-theme-template') || localStorage.getItem(TPL_KEY) || 'ios'; return v; } catch (e) { return 'ios'; }
+    };
+    const setTpl = (id) => {
+      try {
+        if (id === 'ios') document.documentElement.removeAttribute('data-theme-template');
+        else document.documentElement.setAttribute('data-theme-template', id);
+        localStorage.setItem(TPL_KEY, id);
+      } catch (e) {}
+      document.querySelectorAll('.sw-template-card').forEach(c => c.classList.toggle('active', c.getAttribute('data-tpl') === id));
+    };
+    const label = document.createElement('div');
+    label.className = 'sw-template-label';
+    label.textContent = '外观模板';
+    const picker = document.createElement('div');
+    picker.id = 'themeThemePicker';
+    picker.className = 'sw-template-picker';
+    TEMPLATES.forEach(t => {
+      const card = document.createElement('div');
+      card.className = 'sw-template-card';
+      card.setAttribute('data-tpl', t.id);
+      card.setAttribute('role', 'button');
+      card.innerHTML = '<div class="sw-tpl-dots">' + t.dots.map(c => '<span class="sw-tpl-dot" style="background:' + c + '"></span>').join('') + '</div><div class="sw-tpl-name">' + t.name + '</div>';
+      card.addEventListener('click', () => setTpl(t.id));
+      picker.appendChild(card);
+    });
+    row.insertAdjacentElement('afterend', label);
+    label.insertAdjacentElement('afterend', picker);
+    setTpl(currentTpl());
+  }, 'template picker');
+
 })();
