@@ -290,8 +290,15 @@
       card = null; seeking = false;
       window.__voiceSeeking = false;
       const r = ratio;
-      /* 进度交给全局引擎（__voiceSeek 成功会写入 __voicePlaybackStart） */
-      try { window.__voiceSeek(r, msgId); } catch (e) {}
+      const info2 = window.__voiceSeekInfo ? window.__voiceSeekInfo() : { ok: false };
+      if (info2.ok) {
+        /* 进度交给全局引擎（__voiceSeek 成功会写入 __voicePlaybackStart） */
+        try { window.__voiceSeek(r, msgId); } catch (e) {}
+      } else {
+        /* 首次播放前：记下目标位置并自动开始播放；音频就位后直接从目标处起播 */
+        try { window.__voicePendingSeek = { ratio: r, msgId: msgId, at: Date.now() }; } catch (e) {}
+        try { if (typeof replayAIMessage === 'function') replayAIMessage(msgId); } catch (e) {}
+      }
       setTimeout(() => { c.classList.remove('voice-zoomed'); }, 1300);
       setTimeout(() => { suppressed = false; }, 200);
     };
@@ -311,6 +318,30 @@
     }, true);
   }, 'voice seek');
 
+  window.__voiceEnsureSpikes = (waveEl) => {
+    try {
+      if (!waveEl || waveEl.querySelector('.wf-spikes')) return true;
+      const svg = waveEl.querySelector('svg');
+      if (!svg) return false;
+      const d = svg.querySelector('path') ? svg.querySelector('path').getAttribute('d') : '';
+      const re = /M (\d+(?:\.\d+)?) ([\d.]+) v ([\d.]+)/g;
+      const heights = [];
+      let m;
+      while ((m = re.exec(d)) && heights.length < 15) heights.push(parseFloat(m[3]));
+      const wrap = document.createElement('span');
+      wrap.className = 'wf-spikes';
+      for (let i = 0; i < 15; i++) {
+        const h = heights[i] || 8;
+        const sp = document.createElement('i');
+        sp.className = 'wf-spike';
+        sp.style.height = (h / 22 * 100) + '%';
+        wrap.appendChild(sp);
+      }
+      svg.replaceWith(wrap);
+      return true;
+    } catch (e) { return false; }
+  };
+
   /* ---- 6b) 全局声纹进度引擎：播放/拖动/恢复统一推进 ---- */
   safe(() => {
     setInterval(() => {
@@ -323,7 +354,8 @@
         if (!btn) return;
         const card = btn.closest('.ai-voice-card');
         const wfEl = card ? card.querySelector('.voice-waveform') : null;
-        if (!wfEl || !wfEl.querySelector('.wf-spikes')) return;
+        if (!wfEl) return;
+        if (!wfEl.querySelector('.wf-spikes')) { if (!window.__voiceEnsureSpikes(wfEl)) return; }
         const el = (Date.now() - p.at) / 1000;
         const r = Math.min(1, (p.offset + el) / Math.max(0.001, p.duration));
         window.__voicePlaybackRatio = r;

@@ -161,6 +161,16 @@
                     const source = context.createBufferSource();
                     session.audioSources.add(source);
                     source.buffer = buffer;
+                    window.__voiceInfo = { buffer, duration: buffer.duration };
+                    let seekStartOffset = 0;
+                    try {
+                        const ps = window.__voicePendingSeek;
+                        if (ps && String(ps.msgId) === String(activeVoicePlayerId)) {
+                            seekStartOffset = Math.max(0, Math.min(0.999, Number(ps.ratio) || 0)) * buffer.duration;
+                            window.__voicePendingSeek = null;
+                            console.log('[TTS] 首播按拖动位置起播 offset=', seekStartOffset);
+                        }
+                    } catch (e) {}
                     source.connect(context.destination);
                     source.onended = () => {
                         session.audioSources.delete(source);
@@ -169,7 +179,8 @@
                     };
                     if (isVoiceSessionActive(session) && onStart) onStart();
                     ensureVoiceSessionActive(session);
-                    source.start();
+                    try { window.__voicePlaybackStart = { at: Date.now(), offset: seekStartOffset, duration: buffer.duration, msgId: activeVoicePlayerId }; window.__voicePlaybackRatio = seekStartOffset / Math.max(0.001, buffer.duration); } catch (e) {}
+                    source.start(0, seekStartOffset);
                     if (activeVoicePlaybackStatus === 'paused' && context.state === 'running') context.suspend().catch(() => {});
                 } catch (error) {
                     reject(error);
