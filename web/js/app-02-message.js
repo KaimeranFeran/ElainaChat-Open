@@ -7,24 +7,13 @@
 
             const wrapper = document.createElement('div');
             wrapper.id = 'thinking-bubble';
-            wrapper.className = 'flex gap-3 mb-4 thinking-bubble animate-fade-in-up';
+            wrapper.className = 'flex mb-4 thinking-bubble animate-fade-in-up';
             wrapper.innerHTML = `
-                <div class="pixso-chat-avatar" aria-hidden="true">
-                    <svg viewBox="0 0 24 24" fill="currentColor">
-                        <circle cx="12" cy="12" r="2.7"/>
-                        <circle cx="5.5" cy="12" r="3.2"/>
-                        <circle cx="18.5" cy="12" r="3.2"/>
-                        <circle cx="12" cy="5.5" r="3.2"/>
-                        <circle cx="12" cy="18.5" r="3.2"/>
-                    </svg>
-                </div>
-                <div class="flex-1 min-w-0">
-                    <div class="bubble-ai rounded-2xl px-4 py-3 inline-flex items-center gap-2.5">
-                        <span class="thinking-dot"></span>
-                        <span class="thinking-dot"></span>
-                        <span class="thinking-dot"></span>
-                        <span class="thinking-label text-sm ml-1">伊蕾娜正在想...</span>
-                    </div>
+                <div class="bubble-ai rounded-2xl px-4 py-3 inline-flex items-center gap-2.5">
+                    <span class="thinking-dot"></span>
+                    <span class="thinking-dot"></span>
+                    <span class="thinking-dot"></span>
+                    <span class="thinking-label text-sm ml-1">伊蕾娜正在想...</span>
                 </div>
             `;
             elements.conversationHistory.appendChild(wrapper);
@@ -128,7 +117,7 @@
         }
 
         function voiceWaveformMarkup() {
-            return Array.from({ length: 15 }, () => '<span class="voice-wave-bar"></span>').join('');
+            return `<svg viewBox="0 0 58 22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M1 8v6 M5 4v14 M9 1.5v19 M13 5v12 M17 0v22 M21 6.5v9 M25 1.5v19 M29 4v14 M33 0v22 M37 5v12 M41 1.5v19 M45 6.5v9 M49 0v22 M53 4v14 M57 1.5v19"/></svg>`;
         }
 
         function updateVoicePlayerButton(messageId, status) {
@@ -158,6 +147,7 @@
                 updateVoicePlayerButton(activeVoicePlayerId, 'idle');
             }
             if (!playing) {
+                try { window.__voicePlaybackStart = null; window.__voicePlaybackRatio = 0; } catch (e) {}
                 updateVoicePlayerButton(messageId, 'idle');
                 if (String(activeVoicePlayerId) === String(messageId)) {
                     activeVoicePlayerId = null;
@@ -191,6 +181,7 @@
             }
             if (activeVoicePlaybackStatus === 'playing') {
                 activeVoicePlaybackStatus = 'paused';
+                try { window.__voicePlaybackStart = null; } catch (e) {}
                 updateVoicePlayerButton(messageId, 'paused');
                 if (_audioContext && _audioContext.state === 'running') await _audioContext.suspend().catch(() => {});
                 if ('speechSynthesis' in window && window.speechSynthesis.speaking && !window.speechSynthesis.paused) {
@@ -202,6 +193,11 @@
                 if (_audioContext && _audioContext.state === 'suspended') await _audioContext.resume().catch(() => {});
                 if ('speechSynthesis' in window && window.speechSynthesis.paused) window.speechSynthesis.resume();
                 activeVoicePlaybackStatus = 'playing';
+                try {
+                    const info = window.__voiceInfo;
+                    const d = info && Number(info.duration || 0);
+                    if (d > 0) window.__voicePlaybackStart = { at: Date.now(), offset: (window.__voicePlaybackRatio || 0) * d, duration: d, msgId: activeVoicePlayerId };
+                } catch (e) {}
                 updateVoicePlayerButton(messageId, 'playing');
                 return true;
             }
@@ -265,10 +261,15 @@
             return task;
         }
 
-        function renderMessage(message) {
+        function renderMessage(message, options = {}) {
+            const shouldMount = options.mount !== false;
+            const shouldAnimate = options.animate !== false;
+            const faved = typeof options.favorited === 'boolean'
+                ? options.favorited
+                : isMessageFavorited(state.currentConversationId, message.id);
             const div = document.createElement('div');
             div.id = `msg-${message.id}`;
-            div.className = `message-item ${message.role === 'user' ? 'message-item-user' : 'message-item-ai'} animate-fade-in-up`;
+            div.className = `message-item ${message.role === 'user' ? 'message-item-user' : 'message-item-ai'}${shouldAnimate ? ' animate-fade-in-up' : ''}`;
 
             if (message.role === 'user') {
                 const userImageUrl = isSafeComposerImageDataUrl(message.imageDataUrl) ? message.imageDataUrl : '';
@@ -280,14 +281,14 @@
                                     <span class="text-xs font-medium text-indigo-500">You</span>
                                     <span class="text-xs text-indigo-300">${message.timestamp}</span>
                                     <button onclick="event.stopPropagation(); handleMessageFavoriteClick('${message.id}')"
-                                            class="message-action-btn ml-auto p-1.5 rounded-lg hover:bg-white/60 transition-all flex items-center gap-1 ${isMessageFavorited(state.currentConversationId, message.id) ? 'text-amber-500' : 'text-indigo-300 hover:text-amber-500'}">
-                                        <svg class="w-3.5 h-3.5" fill="${isMessageFavorited(state.currentConversationId, message.id) ? 'currentColor' : 'none'}" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                                            class="message-action-btn ml-auto p-1.5 rounded-lg hover:bg-white/60 transition-all flex items-center gap-1 ${faved ? 'text-amber-500' : 'text-indigo-300 hover:text-amber-500'}">
+                                        <svg class="w-3.5 h-3.5" fill="${faved ? 'currentColor' : 'none'}" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
                                             <path stroke-linecap="round" stroke-linejoin="round" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"/>
                                         </svg>
-                                        <span class="text-xs font-medium">${isMessageFavorited(state.currentConversationId, message.id) ? '已收藏' : '收藏'}</span>
+                                        <span class="text-xs font-medium">${faved ? '已收藏' : '收藏'}</span>
                                     </button>
                                 </div>
-                                ${userImageUrl ? `<img class="message-image" src="${userImageUrl}" alt="${escapeHtml(message.imageName || '用户发送的图片')}">` : ''}
+                                ${userImageUrl ? `<img class="message-image" src="${userImageUrl}" alt="${escapeHtml(message.imageName || '用户发送的图片')}" loading="lazy" decoding="async">` : ''}
                                 ${message.text ? `<p class="text-indigo-800 text-sm leading-relaxed whitespace-pre-wrap">${escapeHtml(message.text)}</p>` : ''}
                             </div>
                         </div>
@@ -299,7 +300,6 @@
                         <div class="text-[11px] text-indigo-400 bg-white/40 border border-white/50 rounded-full px-3 py-1 max-w-[90%] text-center">${escapeHtml(message.text)}</div>
                     </div>`;
             } else {
-                const faved = isMessageFavorited(state.currentConversationId, message.id);
                 const name = state.characterCard.name || '伊蕾娜';
                 const voiceDurationSeconds = estimateVoiceDurationSeconds(message.voiceJp || message.text);
                 const voiceCard = `
@@ -335,14 +335,16 @@
                     </div>
                 `;
             }
+            if (shouldMount) {
+                elements.conversationHistory.appendChild(div);
+                elements.conversationHistory.scrollTop = elements.conversationHistory.scrollHeight;
+            }
+
             // 附加多选标记圆点
             const selectMark = document.createElement('span');
             selectMark.className = 'message-select-mark';
             selectMark.textContent = '✓';
             div.appendChild(selectMark);
-
-            elements.conversationHistory.appendChild(div);
-            elements.conversationHistory.scrollTop = elements.conversationHistory.scrollHeight;
 
             // 附加消息交互（长按菜单 / 多选 / 桌面右键）
             if (messageSelection.active) {
@@ -409,7 +411,9 @@
         // ==================== 语音识别 ====================
 
         function initSpeechRecognition() {
-            initBrowserSpeechRecognition();
+            // Android 使用本地录音 + 阿里百炼最终识别，避免 WebView SpeechRecognition
+            // 在不同系统/厂商上的识别质量和权限行为不一致。
+            browserRecognition = null;
         }
 
         function initBrowserSpeechRecognition() {
@@ -442,7 +446,6 @@
 
             browserRecognition.onerror = (event) => {
                 console.error('Speech recognition error:', event.error);
-                asrRecognitionActive = false;
                 clearVoiceTimers();
                 if (asrEnding || asrSubmitting) return;
                 if (isBrowserSpeechPermissionError(event.error) && canUseCloudFinalAsr() && asrMediaStream) {
@@ -461,20 +464,15 @@
             };
 
             browserRecognition.onend = () => {
-                asrRecognitionActive = false;
                 if (asrEnding || asrSubmitting) return;
                 if (silenceTimer) {
                     clearTimeout(silenceTimer);
                     silenceTimer = null;
                 }
-                const endedSessionId = asrSessionId;
                 if ((asrMode === 'browser' || asrMode === 'browser-session' || asrMode === 'browser-cloud-final') && (state.voiceState === 'listening' || state.voiceState === 'paused')) {
                     setTimeout(() => {
-                        if (endedSessionId === asrSessionId && !asrStarting && (asrMode === 'browser' || asrMode === 'browser-session' || asrMode === 'browser-cloud-final') && (state.voiceState === 'listening' || state.voiceState === 'paused')) {
-                            try {
-                                browserRecognition.start();
-                                asrRecognitionActive = true;
-                            } catch (e) {
+                        if ((asrMode === 'browser' || asrMode === 'browser-session' || asrMode === 'browser-cloud-final') && (state.voiceState === 'listening' || state.voiceState === 'paused')) {
+                            try { browserRecognition.start(); } catch (e) {
                                 console.warn('[Voice] 浏览器识别重启失败', e);
                                 if (state.voiceState === 'listening') {
                                     state.voiceState = 'paused';
@@ -488,7 +486,9 @@
         }
 
         function canUseCloudFinalAsr() {
-            return (state.settings.asrProvider || 'browser') === 'aliyun' && Boolean(String(state.settings.dashscopeApiKey || '').trim());
+            // Android 端统一使用云端阿里百炼，避免 WebView 的 SpeechRecognition
+            // 在不同厂商系统上被静默接管或返回质量不稳定的结果。
+            return true;
         }
 
         function isLocalAudioAsrMode(mode = asrMode) {
@@ -551,6 +551,10 @@
             } else if (state.voiceState === 'listening') {
                 elements.statusText.textContent = source === 'cloud' ? '云端识别中...' : '正在聆听...';
             }
+        }
+
+        function getCloudFinalAsrUrl() {
+            return `${getGatewayBaseUrl()}/api/asr-cloud-final`;
         }
 
         function downsampleBuffer(input, inputSampleRate, outputSampleRate) {
@@ -620,37 +624,6 @@
             };
         }
 
-        function float32ToWavBase64(samples, sampleRate) {
-            const wav = new ArrayBuffer(44 + samples.length * 2);
-            const view = new DataView(wav);
-            const writeText = (offset, text) => {
-                for (let index = 0; index < text.length; index++) view.setUint8(offset + index, text.charCodeAt(index));
-            };
-            writeText(0, 'RIFF');
-            view.setUint32(4, 36 + samples.length * 2, true);
-            writeText(8, 'WAVE');
-            writeText(12, 'fmt ');
-            view.setUint32(16, 16, true);
-            view.setUint16(20, 1, true);
-            view.setUint16(22, 1, true);
-            view.setUint32(24, sampleRate, true);
-            view.setUint32(28, sampleRate * 2, true);
-            view.setUint16(32, 2, true);
-            view.setUint16(34, 16, true);
-            writeText(36, 'data');
-            view.setUint32(40, samples.length * 2, true);
-            for (let index = 0; index < samples.length; index++) {
-                const sample = Math.max(-1, Math.min(1, samples[index]));
-                view.setInt16(44 + index * 2, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
-            }
-            const bytes = new Uint8Array(wav);
-            let binary = '';
-            for (let offset = 0; offset < bytes.length; offset += 0x8000) {
-                binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
-            }
-            return btoa(binary);
-        }
-
         function normalizeAsrTextForGuard(text) {
             return String(text || '')
                 .trim()
@@ -699,27 +672,29 @@
                 return '';
             }
 
-            const dashscopeApiKey = String(state.settings.dashscopeApiKey || '').trim();
-            if (!dashscopeApiKey) throw new ClientApiError('APP_KEY_MISSING', '请先在设置中填写 DashScope API Key');
+            const appAccessKey = (state.settings.apiKey || '').trim();
+            if (!appAccessKey) throw new ClientApiError('APP_KEY_MISSING', '请先在设置中填写 ElainaChat 使用 Key');
             const startedAt = performance.now();
-            const result = await postJsonFromDevice(DASHSCOPE_SYNC_URL, {
-                model: 'qwen3-asr-flash',
-                input: {
-                    messages: [{
-                        role: 'user',
-                        content: [{ audio: `data:audio/wav;base64,${float32ToWavBase64(audio, ASR_TARGET_SAMPLE_RATE)}` }]
-                    }]
+            const response = await fetchWithTimeout(getCloudFinalAsrUrl(), {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/octet-stream',
+                    'Authorization': `Bearer ${appAccessKey}`,
+                    'X-ASR-Sample-Rate': String(ASR_TARGET_SAMPLE_RATE),
+                    'X-ASR-Format': 'float32le'
                 },
-                parameters: { asr_options: { language: 'zh', enable_itn: true } }
-            }, {
-                Authorization: `Bearer ${dashscopeApiKey}`,
-                'X-DashScope-DataInspection': 'enable'
+                body: audio.buffer
             }, ASR_CLOUD_FINAL_TIMEOUT_MS);
-            if (!result.ok) await throwProviderResponseError(result, '阿里百炼语音识别失败');
-            const content = result.payload?.choices?.[0]?.message?.content ?? result.payload?.output?.text;
-            const text = Array.isArray(content) ? content.map(part => part?.text || '').join(' ') : String(content || '');
-            console.info(`[ASR] 阿里百炼完成: ${Math.round(performance.now() - startedAt)}ms`);
-            return text.trim();
+
+            if (!response.ok) throw await readApiErrorResponse(response, '云端最终识别失败');
+            let payload = null;
+            try { payload = await response.json(); }
+            catch { throw new ClientApiError('UPSTREAM_UNAVAILABLE', '云端最终识别返回格式异常'); }
+            if (!payload?.ok) {
+                throw new ClientApiError(inferApiErrorCode(0, payload), payload?.message || payload?.error || '云端最终识别失败');
+            }
+            console.info(`[ASR] 阿里百炼完成: ${Math.round(performance.now() - startedAt)}ms, model=${payload.model || 'unknown'}, engine=${payload.engine || 'unknown'}`);
+            return (payload.text || '').trim();
         }
 
         async function startBrowserRecognitionSession() {
@@ -764,33 +739,9 @@
             asrProcessorNode.connect(silentGain);
             silentGain.connect(asrAudioContext.destination);
 
-            asrMode = 'browser-session';
+            asrMode = 'cloud-final-only';
             asrReady = true;
-            if (browserRecognition) {
-                // 清理可能仍在运行的旧识别会话，避免 start() 抛
-                // "Failed to execute 'start' ... recognition has already started"
-                if (asrRecognitionActive) {
-                    try { browserRecognition.abort(); } catch (e) { /* 已停止则忽略 */ }
-                    try { browserRecognition.stop(); } catch (e) { /* 已停止则忽略 */ }
-                    await new Promise(resolve => setTimeout(resolve, 150));
-                    asrRecognitionActive = false;
-                }
-                try {
-                    browserRecognition.start();
-                    asrRecognitionActive = true;
-                } catch (error) {
-                    if (canUseCloudFinalAsr() && isBrowserSpeechPermissionError(error)) {
-                        asrMode = 'cloud-final-only';
-                        elements.statusText.textContent = '正在录音，点击麦克风结束后识别...';
-                        return;
-                    }
-                    stopLocalAudioGraph();
-                    throw error;
-                }
-            } else {
-                asrMode = 'cloud-final-only';
-                elements.statusText.textContent = '正在录音，点击麦克风结束后识别...';
-            }
+            elements.statusText.textContent = '正在录音，点击麦克风结束后使用阿里百炼识别...';
         }
 
         function stopLocalAudioGraph() {
@@ -839,17 +790,14 @@
         }
 
         async function startListening() {
-            if (asrSubmitting || asrStarting) {
-                console.log('[ASR] 忽略重复 startListening 调用');
+            if (asrSubmitting) {
+                console.log('[ASR] 忽略提交中的 startListening 调用');
                 return;
             }
-            asrStarting = true;
-            asrSessionId++;
             clearVoiceTimers();
             currentTranscript = '';
 
             if (!browserRecognition && !canUseCloudFinalAsr()) {
-                asrStarting = false;
                 showCustomAlert('当前浏览器不支持实时语音识别', '语音识别不可用');
                 return;
             }
@@ -861,8 +809,6 @@
                 state.voiceState = 'error';
                 updateUI();
                 showCustomAlert('语音识别启动失败: ' + error.message, '语音识别错误');
-            } finally {
-                asrStarting = false;
             }
         }
 
@@ -875,7 +821,7 @@
             clearVoiceTimers();
             asrEnding = true;
             const fallbackTranscript = currentTranscript.trim();
-            let finalText = fallbackTranscript;
+            let finalText = '';
             const activeMode = asrMode;
             asrMode = 'submitting';
             state.voiceState = 'thinking';
@@ -891,20 +837,20 @@
                             console.error('Failed to stop recognition:', e);
                         }
                     }
-                    if (canUseCloudFinalAsr()) {
-                        elements.statusText.textContent = '正在用阿里百炼识别...';
-                        try {
-                            const cloudText = await transcribeRecordedAudioWithCloud();
-                            if (cloudText && !isBadCloudFinalText(cloudText, fallbackTranscript)) {
-                                finalText = cloudText;
-                                cloudFinalAsrAvailable = true;
-                            } else {
-                                console.warn('[ASR] 阿里百炼返回空或疑似无效文本，保留浏览器识别结果');
-                            }
-                        } catch (error) {
-                            console.warn(`[ASR] 阿里百炼识别失败，保留浏览器识别结果：${error.message || error}`);
-                            if (!fallbackTranscript) showClientApiError(error);
+                    // Android 不再根据设置切换到浏览器识别；录音结束后始终
+                    // 将本地采集的 PCM 交给网关，再由阿里百炼 qwen3-asr-flash 识别。
+                    elements.statusText.textContent = '正在用阿里百炼识别...';
+                    try {
+                        const cloudText = await transcribeRecordedAudioWithCloud();
+                        if (cloudText && !isBadCloudFinalText(cloudText, fallbackTranscript)) {
+                            finalText = cloudText;
+                            cloudFinalAsrAvailable = true;
+                        } else {
+                            console.warn('[ASR] 阿里百炼返回空或疑似无效文本');
                         }
+                    } catch (error) {
+                        console.warn(`[ASR] 阿里百炼识别失败：${error.message || error}`);
+                        showClientApiError(error);
                     }
                     resetRecordedAudio();
                 } else if (browserRecognition) {
@@ -932,7 +878,7 @@
                 asrEnding = false;
                 asrSubmitting = false;
                 if (state.voiceState === 'idle' || state.voiceState === 'thinking') {
-                    asrMode = canUseCloudFinalAsr() ? 'cloud-final-only' : 'browser';
+                    asrMode = 'cloud-final-only';
                 }
             }
         }
@@ -1221,8 +1167,11 @@
             conversation.messages.push(message);
             consumePendingComposerImage();
             document.getElementById('initialTextInput').value = '';
+            document.getElementById('initialTextInput').blur();
+            resetInitialComposerKeyboardState();
             updateComposerSendVisibility();
             loadConversation(conversation.id);
+            scheduleViewportRecovery();
 
             if (conversation.messages.length === 1) {
                 conversation.title = autoNameConversation(conversation.messages);
@@ -1279,19 +1228,6 @@
             updateComposerSendVisibility();
         }
 
-        function isTtsConfigured(settings = state.settings) {
-            const provider = String(settings.ttsProvider || 'minimax');
-            if (provider === 'doubao') {
-                const hasV3 = Boolean(String(settings.doubaoApiKey || '').trim());
-                const hasV1 = Boolean(String(settings.doubaoAppId || '').trim() && String(settings.doubaoToken || '').trim());
-                return (hasV3 || hasV1) && Boolean(String(settings.doubaoVoice || '').trim());
-            }
-            if (provider === 'dashscope') {
-                return Boolean(String(settings.dashscopeApiKey || '').trim() && String(settings.dashscopeTtsVoice || '').trim());
-            }
-            return Boolean(String(settings.minimaxApiKey || '').trim() && String(settings.minimaxVoice || '').trim());
-        }
-
         async function handleUserInput(message, conversation) {
             if (!conversation) {
                 conversation = state.conversations.find(c => c.id === state.currentConversationId);
@@ -1312,14 +1248,19 @@
             renderThinkingMessage();
 
             try {
-                const ttsConfigured = isTtsConfigured(state.settings);
-                const wantsJp = ttsConfigured && state.settings.ttsLang === 'japanese';
+                const wantsJp = state.settings.ttsLang === 'japanese';
                 const aiRequestOptions = {
                     includeVoiceJp: wantsJp,
                     imageDataUrl: message.imageRequestDataUrl || message.imageDataUrl || ''
                 };
-                const rawResponse = await callAI(message.text, aiRequestOptions);
-                const parsedReply = wantsJp ? splitVoiceReply(rawResponse) : { displayText: rawResponse, voiceJp: '' };
+                const parsedReply = await enqueueConversationReplyGeneration(
+                    conversation.id,
+                    () => requestRoleplayReplyWithRepetitionGuard(
+                        message.text,
+                        aiRequestOptions,
+                        conversation
+                    )
+                );
                 const response = parsedReply.displayText;
 
                 const t1 = performance.now();
@@ -1368,7 +1309,9 @@
                     updateUI();
 
                     if (state.settings.autoMemory) {
-                        const userCount = conversation.messages.filter(m => m.role === 'user').length;
+                        const userCount = conversation.messages
+                            .slice(getForgottenContextCutoff(conversation))
+                            .filter(m => m.role === 'user').length;
                         const every = Math.max(3, state.settings.memoryEvery || 6);
                         if (userCount % every === 0) {
                             console.log(`[记忆] 自动整理触发（第 ${userCount} 轮）`);
@@ -1384,12 +1327,6 @@
                 };
 
                 if (presentationMode === 'text-first') commitAiMessageOnce();
-
-                if (!ttsConfigured) {
-                    pendingAutomaticVoiceMessageIds.delete(automaticVoiceMessageKey);
-                    commitAiMessageOnce();
-                    return;
-                }
 
                 // Text-first mode commits above; Japanese preparation continues without
                 // delaying the visible reply. Persist the late voice text for replay.

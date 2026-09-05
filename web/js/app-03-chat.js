@@ -369,6 +369,7 @@
                     activeVoicePlaybackStatus = 'playing';
                     try { updateVoicePlayerButton(messageId, 'playing'); } catch (e) {}
                 }
+                try { window.__voicePlaybackStart = { at: Date.now(), offset, duration, msgId: messageId }; window.__voicePlaybackRatio = ratio; } catch (e) {}
                 return { ok: true, offset, duration, at: Date.now() };
             } catch (e) {
                 return { ok: false, reason: String(e && e.message || e) };

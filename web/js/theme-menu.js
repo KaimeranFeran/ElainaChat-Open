@@ -216,7 +216,6 @@
     let startX = 0, startY = 0;
     let card = null, wf = null, msgId = null;
     let ratio = 0;
-    let progressTimer = null;
 
     const SPIKES = 15;
     const buildSpikes = (waveEl) => {
@@ -238,12 +237,13 @@
       }
       svg.replaceWith(wrap);
     };
-    const applyRatio = (r) => {
-      if (!wf) return;
+    const applyRatioTo = (wfEl, r) => {
+      if (!wfEl) return;
       const n = Math.round(r * SPIKES);
-      const spikes = wf.querySelectorAll('.wf-spike');
+      const spikes = wfEl.querySelectorAll('.wf-spike');
       spikes.forEach((s, i) => s.classList.toggle('on', i < n));
     };
+    const applyRatio = (r) => { applyRatioTo(wf, r); };
     const wfRect = () => wf ? wf.getBoundingClientRect() : null;
     const ratioFromEvent = (ev) => {
       const rect = wfRect();
@@ -266,6 +266,7 @@
       pressTimer = setTimeout(() => {
         pressTimer = null;
         seeking = true;
+        window.__voiceSeeking = true;
         suppressed = true;
         if (!wf.querySelector('.wf-spikes')) buildSpikes(wf);
         card.classList.add('voice-zoomed');
@@ -287,23 +288,14 @@
       if (!seeking || !card) { if (pressTimer === null) suppressed = false; return; }
       const c = card;
       card = null; seeking = false;
+      window.__voiceSeeking = false;
       const r = ratio;
-      const info = window.__voiceSeekInfo ? window.__voiceSeekInfo() : { ok: false };
-      if (info.ok) {
-        try { window.__voiceSeek(r, msgId); } catch (e) {}
-        const d = info.duration || 0;
-        const at = Date.now();
-        progressTimer = setInterval(() => {
-          const el = (Date.now() - at) / 1000;
-          const r2 = Math.min(1, ((r * d) + el) / Math.max(0.001, d));
-          applyRatio(r2);
-          if (r2 >= 1) { clearInterval(progressTimer); progressTimer = null; }
-        }, 300);
-      }
+      /* 进度交给全局引擎（__voiceSeek 成功会写入 __voicePlaybackStart） */
+      try { window.__voiceSeek(r, msgId); } catch (e) {}
       setTimeout(() => { c.classList.remove('voice-zoomed'); }, 1300);
       setTimeout(() => { suppressed = false; }, 200);
     };
-    const pressCancel = () => { if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; } };
+    const pressCancel = () => { if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; } window.__voiceSeeking = false; };
     let lastTouchTs = 0;
     const onTouchStart = (ev) => { lastTouchTs = Date.now(); pressStart(ev, ev.target); };
     const onMouseDown = (ev) => { if (Date.now() - lastTouchTs < 500) return; pressStart(ev, ev.target); };
@@ -318,6 +310,29 @@
       if (suppressed) { ev.stopPropagation(); ev.preventDefault(); }
     }, true);
   }, 'voice seek');
+
+  /* ---- 6b) 全局声纹进度引擎：播放/拖动/恢复统一推进 ---- */
+  safe(() => {
+    setInterval(() => {
+      try {
+        const p = window.__voicePlaybackStart;
+        if (!p || !p.msgId || !p.duration) return;
+        if (window.__voiceSeeking === true) return;
+        if (typeof activeVoicePlaybackStatus !== 'undefined' && activeVoicePlaybackStatus !== 'playing') return;
+        const btn = document.getElementById('voice-player-' + p.msgId);
+        if (!btn) return;
+        const card = btn.closest('.ai-voice-card');
+        const wfEl = card ? card.querySelector('.voice-waveform') : null;
+        if (!wfEl || !wfEl.querySelector('.wf-spikes')) return;
+        const el = (Date.now() - p.at) / 1000;
+        const r = Math.min(1, (p.offset + el) / Math.max(0.001, p.duration));
+        window.__voicePlaybackRatio = r;
+        const n = Math.round(r * 15);
+        wfEl.querySelectorAll('.wf-spike').forEach((s2, i) => s2.classList.toggle('on', i < n));
+        if (r >= 1) window.__voicePlaybackStart = null;
+      } catch (e) {}
+    }, 250);
+  }, 'voice engine');
 
   /* ---- 7) 外观模板选择器（设置·外观 Finder 色板栏） ---- */
   safe(() => {
