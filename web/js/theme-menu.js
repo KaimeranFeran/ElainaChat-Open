@@ -100,4 +100,60 @@
     });
   }, 'header menu');
 
+
+  /* ---- 4) 主题切换：头部按钮 + 设置外观行 + 持久化 ---- */
+  const THEME_KEY = 'elaina_theme';
+  const setTheme = (v) => {
+    try {
+      document.documentElement.setAttribute('data-theme', v);
+      localStorage.setItem(THEME_KEY, v);
+    } catch (e) {}
+    syncThemeUI();
+  };
+  const currentTheme = () => (document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light');
+  const ICON_MOON = '<svg fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21 12.8A9 9 0 1111.2 3a7 7 0 009.8 9.8z"/></svg>';
+  const ICON_SUN = '<svg fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><circle cx="12" cy="12" r="4"/><path stroke-linecap="round" d="M12 2v2m0 16v2M4.9 4.9l1.4 1.4m11.4 11.4l1.4 1.4M2 12h2m16 0h2M4.9 19.1l1.4-1.4m11.4-11.4l1.4-1.4"/></svg>';
+  let themeBtn = null;
+  let themeSwitch = null;
+  const syncThemeUI = () => {
+    const dark = currentTheme() === 'dark';
+    if (themeBtn) themeBtn.innerHTML = dark ? ICON_SUN : ICON_MOON;
+    if (themeSwitch) themeSwitch.classList.toggle('on', dark);
+  };
+  // 头部按钮（插在“整理记忆”前面）
+  safe(() => {
+    const anchor = document.getElementById('headerMemoryBtn');
+    const header = anchor ? anchor.parentElement : null;
+    if (!header || header.querySelector('.sw-theme-btn')) return;
+    themeBtn = document.createElement('button');
+    themeBtn.type = 'button';
+    themeBtn.className = 'sw-theme-btn';
+    themeBtn.title = '切换深色/浅色模式';
+    themeBtn.setAttribute('aria-label', '切换深色/浅色模式');
+    header.insertBefore(themeBtn, anchor);
+    themeBtn.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      setTheme(currentTheme() === 'dark' ? 'light' : 'dark');
+    });
+    syncThemeUI();
+  }, 'theme button');
+  // 设置页外观行（注入到 settingsContent 顶部）
+  safe(() => {
+    const content = document.getElementById('settingsContent');
+    if (!content || document.getElementById('themeSettingSection')) return;
+    const sec = document.createElement('section');
+    sec.id = 'themeSettingSection';
+    sec.innerHTML =
+      '<div class="modal-label flex items-center gap-2"><span class="text-violet-500">✦</span> 外观</div>' +
+      '<div class="sw-setting-theme-row" id="themeSettingRow">' +
+      '<div class="sw-ttl">深色模式</div>' +
+      '<div class="sw-switch" id="themeSettingSwitch"></div>' +
+      '</div>';
+    content.insertBefore(sec, content.firstChild);
+    themeSwitch = document.getElementById('themeSettingSwitch');
+    document.getElementById('themeSettingRow').addEventListener('click', () => {
+      setTheme(currentTheme() === 'dark' ? 'light' : 'dark');
+    });
+    syncThemeUI();
+  }, 'theme settings row');
 })();
