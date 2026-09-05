@@ -9,23 +9,23 @@
 /* ---------- 令牌 ---------- */
 :root {
   /* 品牌色（粉紫蓝 aurora） */
-  --lg-pink: #f472b6;
-  --lg-violet: #a78bfa;
-  --lg-blue: #7dd3fc;
-  --lg-indigo: #6366f1;
-  --lg-fuchsia: #d946ef;
-  --lg-ink: #241b4d;
-  --lg-ink-soft: #4c3f86;
+  --lg-pink: #dfff00;
+  --lg-violet: #ffd60a;
+  --lg-blue: #ffe27a;
+  --lg-indigo: #c8f542;
+  --lg-fuchsia: #dfff00;
+  --lg-ink: #18170f;
+  --lg-ink-soft: #57543e;
 
   /* pixso 旧主题变量重映射 → 液态玻璃色系（全局自动生效） */
-  --pixso-brown: #3b2d6e;
-  --pixso-brown-dark: #241b4d;
-  --pixso-brown-soft: #6d5fb0;
+  --pixso-brown: #242208;
+  --pixso-brown-dark: #18170f;
+  --pixso-brown-soft: #8a7b4f;
   --pixso-cream: rgba(255, 255, 255, 0.55);
   --pixso-panel-soft: rgba(255, 255, 255, 0.42);
-  --pixso-orange: #d946ef;
-  --pixso-green-dark: #14b8a6;
-  --pixso-green: #8b5cf6;
+  --pixso-orange: #dfff00;
+  --pixso-green-dark: #a3e635;
+  --pixso-green: #c8f542;
 
   /* 液态玻璃配方 */
   --lg-glass-bg: rgba(255, 255, 255, 0.30);
@@ -34,8 +34,8 @@
   --lg-glass-border-soft: rgba(255, 255, 255, 0.34);
   --lg-glass-blur: 28px;
   --lg-glass-sat: 1.7;
-  --lg-shadow: 0 24px 70px rgba(76, 29, 149, 0.22), 0 6px 22px rgba(76, 29, 149, 0.12);
-  --lg-shadow-light: 0 10px 32px rgba(76, 29, 149, 0.14), 0 2px 8px rgba(76, 29, 149, 0.08);
+  --lg-shadow: 0 24px 70px rgba(24, 23, 15, 0.22), 0 6px 22px rgba(24, 23, 15, 0.12);
+  --lg-shadow-light: 0 10px 32px rgba(24, 23, 15, 0.14), 0 2px 8px rgba(24, 23, 15, 0.08);
   --lg-radius-lg: 24px;
   --lg-radius-md: 16px;
   --lg-radius-pill: 999px;
@@ -45,10 +45,10 @@
 /* ---------- 背景：极光网格 + 大光斑 ---------- */
 html, body {
   background:
-    radial-gradient(1200px 700px at 12% -8%, rgba(244, 114, 182, 0.34), transparent 60%),
-    radial-gradient(1000px 640px at 108% 12%, rgba(125, 211, 252, 0.36), transparent 58%),
-    radial-gradient(900px 700px at 55% 118%, rgba(167, 139, 250, 0.40), transparent 62%),
-    linear-gradient(160deg, #fbeef8 0%, #ece7ff 42%, #e3f2ff 100%) !important;
+    radial-gradient(1200px 700px at 12% -8%, rgba(223, 255, 0, 0.34), transparent 60%),
+    radial-gradient(1000px 640px at 108% 12%, rgba(255, 214, 10, 0.36), transparent 58%),
+    radial-gradient(900px 700px at 55% 118%, rgba(255, 176, 0, 0.40), transparent 62%),
+    linear-gradient(160deg, #fffdf0 0%, #fbf7e4 42%, #fff6d6 100%) !important;
   background-attachment: fixed !important;
 }
 
@@ -57,9 +57,9 @@ html, body {
   opacity: 0.5 !important;
   will-change: transform;
 }
-.orb-1 { background: radial-gradient(circle, rgba(244, 114, 182, 0.85), transparent 70%) !important; animation-duration: 14s !important; }
-.orb-2 { background: radial-gradient(circle, rgba(139, 92, 246, 0.8), transparent 70%) !important; animation-duration: 17s !important; }
-.orb-3 { background: radial-gradient(circle, rgba(56, 189, 248, 0.7), transparent 70%) !important; animation-duration: 20s !important; }
+.orb-1 { background: radial-gradient(circle, rgba(223, 255, 0, 0.85), transparent 70%) !important; animation-duration: 14s !important; }
+.orb-2 { background: radial-gradient(circle, rgba(200, 245, 66, 0.8), transparent 70%) !important; animation-duration: 17s !important; }
+.orb-3 { background: radial-gradient(circle, rgba(255, 214, 10, 0.7), transparent 70%) !important; animation-duration: 20s !important; }
 
 /* 页面细噪点（质感） */
 body::after {
@@ -84,7 +84,7 @@ body::after {
 
 /* ---------- 弹层 ---------- */
 .modal-overlay {
-  background: rgba(40, 22, 84, 0.30) !important;
+  background: rgba(22, 20, 10, 0.30) !important;
   -webkit-backdrop-filter: blur(14px) saturate(1.4) !important;
   backdrop-filter: blur(14px) saturate(1.4) !important;
 }
@@ -116,7 +116,7 @@ body::after {
   inset: 0;
   border-radius: inherit;
   pointer-events: none;
-  background: linear-gradient(155deg, rgba(255, 255, 255, 0.35), transparent 38%, transparent 68%, rgba(167, 139, 250, 0.14));
+  background: linear-gradient(155deg, rgba(255, 255, 255, 0.35), transparent 38%, transparent 68%, rgba(255, 176, 0, 0.14));
 }
 
 /* ---------- 按钮 ---------- */
@@ -130,10 +130,10 @@ body::after {
 }
 .btn-primary {
   color: #fff !important;
-  background: linear-gradient(135deg, rgba(236, 72, 153, 0.92), rgba(139, 92, 246, 0.92)) !important;
+  background: linear-gradient(135deg, rgba(223, 255, 0, 0.92), rgba(200, 245, 66, 0.92)) !important;
   border: 1px solid rgba(255, 255, 255, 0.35) !important;
-  box-shadow: 0 10px 24px rgba(217, 70, 239, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.45) !important;
-  text-shadow: 0 1px 2px rgba(30, 8, 60, 0.25);
+  box-shadow: 0 10px 24px rgba(223, 255, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.45) !important;
+  text-shadow: 0 1px 2px rgba(26, 23, 5, 0.25);
 }
 .btn-primary::before,
 .btn-secondary::before,
@@ -150,20 +150,20 @@ body::after {
   transition: left .55s ease;
   pointer-events: none;
 }
-.btn-primary:hover { transform: translateY(-1px); box-shadow: 0 14px 34px rgba(217, 70, 239, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.5) !important; }
+.btn-primary:hover { transform: translateY(-1px); box-shadow: 0 14px 34px rgba(223, 255, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.5) !important; }
 .btn-primary:hover::after { left: 130%; }
 .btn-secondary {
   color: var(--lg-ink-soft) !important;
   background: rgba(255, 255, 255, 0.42) !important;
   border: 1px solid rgba(255, 255, 255, 0.7) !important;
-  box-shadow: 0 8px 20px rgba(76, 29, 149, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.8) !important;
+  box-shadow: 0 8px 20px rgba(24, 23, 15, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.8) !important;
 }
 .btn-secondary:hover { background: rgba(255, 255, 255, 0.66) !important; transform: translateY(-1px); }
 .glass-button {
   color: var(--lg-ink) !important;
   background: rgba(255, 255, 255, 0.38) !important;
   border: 1px solid rgba(255, 255, 255, 0.65) !important;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.75), 0 6px 18px rgba(76, 29, 149, 0.10) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.75), 0 6px 18px rgba(24, 23, 15, 0.10) !important;
 }
 .glass-button:hover { background: rgba(255, 255, 255, 0.60) !important; }
 
@@ -172,12 +172,12 @@ body::after {
   background: rgba(255, 255, 255, 0.52) !important;
   border: 1px solid rgba(255, 255, 255, 0.75) !important;
   border-radius: 14px !important;
-  box-shadow: inset 0 1px 2px rgba(76, 29, 149, 0.08), 0 4px 14px rgba(76, 29, 149, 0.06) !important;
+  box-shadow: inset 0 1px 2px rgba(24, 23, 15, 0.08), 0 4px 14px rgba(24, 23, 15, 0.06) !important;
   color: var(--lg-ink) !important;
 }
 .modal-input:focus, .modal-textarea:focus {
-  border-color: rgba(217, 70, 239, 0.65) !important;
-  box-shadow: 0 0 0 3px rgba(217, 70, 239, 0.18), 0 8px 24px rgba(217, 70, 239, 0.16) !important;
+  border-color: rgba(223, 255, 0, 0.65) !important;
+  box-shadow: 0 0 0 3px rgba(223, 255, 0, 0.18), 0 8px 24px rgba(223, 255, 0, 0.16) !important;
 }
 
 /* ---------- 聊天气泡 ---------- */
@@ -186,22 +186,22 @@ body::after {
   backdrop-filter: blur(22px) saturate(1.6);
   -webkit-backdrop-filter: blur(22px) saturate(1.6);
   border: 1px solid rgba(255, 255, 255, 0.8) !important;
-  box-shadow: 0 10px 26px rgba(76, 29, 149, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.9) !important;
+  box-shadow: 0 10px 26px rgba(24, 23, 15, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.9) !important;
 }
 .bubble-ai {
-  background: linear-gradient(135deg, rgba(244, 114, 182, 0.22), rgba(139, 92, 246, 0.26), rgba(125, 211, 252, 0.16)) !important;
+  background: linear-gradient(135deg, rgba(223, 255, 0, 0.22), rgba(200, 245, 66, 0.26), rgba(255, 214, 10, 0.16)) !important;
   backdrop-filter: blur(24px) saturate(1.7);
   -webkit-backdrop-filter: blur(24px) saturate(1.7);
-  border: 1px solid rgba(217, 70, 239, 0.35) !important;
-  box-shadow: 0 10px 30px rgba(217, 70, 239, 0.20), inset 0 1px 0 rgba(255, 255, 255, 0.55) !important;
+  border: 1px solid rgba(223, 255, 0, 0.35) !important;
+  box-shadow: 0 10px 30px rgba(223, 255, 0, 0.20), inset 0 1px 0 rgba(255, 255, 255, 0.55) !important;
 }
 .ai-speaker-name { color: var(--lg-fuchsia) !important; font-weight: 700 !important; }
 
 /* ---------- 侧栏 / 列表 ---------- */
 .sidebar-item-active {
   background: rgba(255, 255, 255, 0.72) !important;
-  border: 1px solid rgba(217, 70, 239, 0.45) !important;
-  box-shadow: 0 8px 22px rgba(217, 70, 239, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.9) !important;
+  border: 1px solid rgba(223, 255, 0, 0.45) !important;
+  box-shadow: 0 8px 22px rgba(223, 255, 0, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.9) !important;
 }
 #folderList .conversation-inline-actions button,
 #conversationMoveClose {
@@ -218,13 +218,13 @@ body::after {
   backdrop-filter: blur(26px) saturate(1.8);
   -webkit-backdrop-filter: blur(26px) saturate(1.8);
   border: 1px solid rgba(255, 255, 255, 0.85) !important;
-  box-shadow: 0 18px 44px rgba(76, 29, 149, 0.24), inset 0 1px 0 rgba(255, 255, 255, 0.9) !important;
+  box-shadow: 0 18px 44px rgba(24, 23, 15, 0.24), inset 0 1px 0 rgba(255, 255, 255, 0.9) !important;
   border-radius: 16px !important;
 }
 .conversation-context-menu button,
 .message-context-menu button { color: var(--lg-ink) !important; }
 .conversation-context-menu button:hover,
-.message-context-menu button:hover { background: linear-gradient(90deg, rgba(244, 114, 182, 0.16), rgba(139, 92, 246, 0.16)) !important; }
+.message-context-menu button:hover { background: linear-gradient(90deg, rgba(223, 255, 0, 0.16), rgba(200, 245, 66, 0.16)) !important; }
 .conversation-context-menu button.danger,
 .message-context-menu button.danger { color: #e11d48 !important; }
 
@@ -232,14 +232,14 @@ body::after {
 .message-item.is-selected .bubble-user,
 .message-item.is-selected .bubble-ai {
   border: 2px solid var(--lg-fuchsia) !important;
-  box-shadow: 0 0 0 4px rgba(217, 70, 239, 0.25), 0 10px 30px rgba(217, 70, 239, 0.25) !important;
+  box-shadow: 0 0 0 4px rgba(223, 255, 0, 0.25), 0 10px 30px rgba(223, 255, 0, 0.25) !important;
 }
 
 /* ---------- 滚动条 ---------- */
 *::-webkit-scrollbar { width: 8px; height: 8px; }
 *::-webkit-scrollbar-track { background: transparent; }
 *::-webkit-scrollbar-thumb {
-  background: linear-gradient(180deg, rgba(217, 70, 239, 0.45), rgba(139, 92, 246, 0.45));
+  background: linear-gradient(180deg, rgba(223, 255, 0, 0.45), rgba(200, 245, 66, 0.45));
   border-radius: 999px;
   border: 2px solid rgba(255, 255, 255, 0.35);
 }
@@ -253,7 +253,7 @@ body::after {
 
 /* ---------- 徽标/提示小元素 ---------- */
 .thinking-bubble .bubble-ai {
-  border-color: rgba(139, 92, 246, 0.4) !important;
+  border-color: rgba(200, 245, 66, 0.4) !important;
 }
 
 /* ======== v2 增补（基于三个参考项目结论） ======== */
@@ -302,10 +302,71 @@ body::after {
   backdrop-filter: blur(26px) saturate(1.7);
   -webkit-backdrop-filter: blur(26px) saturate(1.7);
   border-right: 1px solid rgba(255,255,255,0.42) !important;
-  box-shadow: inset -1px 0 0 rgba(255,255,255,0.10), 10px 0 40px rgba(76,29,149,0.10) !important;
+  box-shadow: inset -1px 0 0 rgba(255,255,255,0.10), 10px 0 40px rgba(24,23,15,0.10) !important;
 }
 
 /* 输入条（composer）玻璃 */
 #inputBar, [class*="input-bar"], [class*="composer"] {
   font-family: var(--lg-font);
 }
+
+
+/* v3 · 酸黄校正：继续回复按钮（原 JS 注入粉紫渐变 → 柠檬玻璃胶囊） */
+.message-continue-btn {
+  border: 1px solid rgba(223, 255, 0, 0.65) !important;
+  background: linear-gradient(135deg, rgba(223, 255, 0, 0.28), rgba(200, 245, 66, 0.22)) !important;
+  color: #4a4908 !important;
+  box-shadow: 0 6px 18px rgba(223, 255, 0, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.75) !important;
+  backdrop-filter: blur(14px) saturate(1.6);
+  -webkit-backdrop-filter: blur(14px) saturate(1.6);
+}
+.message-continue-btn:hover {
+  background: linear-gradient(135deg, rgba(223, 255, 0, 0.45), rgba(200, 245, 66, 0.38)) !important;
+}
+.message-continue-btn:active { transform: scale(.96) !important; }
+
+/* ---------- v3 · 酸黄校正 2：Tailwind 紫/粉类 + 品牌变量 + 原生控件 ----------
+   仅重定义颜色值（类名、功能零改动）：indigo/pink/violet/fuchsia → 柠檬/琥珀/墨色系 */
+:root {
+  --color-primary: #a8b800 !important;
+  --color-primary-soft: #c9d94a !important;
+  --color-secondary: #9fae1e !important;
+  --color-secondary-soft: #bcc83a !important;
+  --color-accent: #dfff00 !important;
+}
+
+/* Tailwind 文字色 */
+.text-indigo-950 { color: #22200a !important; }
+.text-indigo-800 { color: #3c3a10 !important; }
+.text-indigo-700 { color: #4a4812 !important; }
+.text-indigo-600 { color: #5c5913 !important; }
+.text-indigo-500 { color: #74721a !important; }
+.text-indigo-400 { color: #8f8c2b !important; }
+.text-indigo-300 { color: #aaa948 !important; }
+.text-indigo-200 { color: #d2cf8e !important; }
+.text-pink-500 { color: #a3b30a !important; }
+.text-pink-600 { color: #8fa30a !important; }
+.text-violet-500 { color: #9fae1e !important; }
+.text-fuchsia-500 { color: #a8b810 !important; }
+.accent-pink-500 { accent-color: #dfff00 !important; }
+
+/* Tailwind 渐变（紫粉 → 柠檬琥珀） */
+.from-violet-300 { --tw-gradient-from: #c9d95a !important; --tw-gradient-from-position: 0% !important; }
+.to-pink-200 { --tw-gradient-to: #ffe27a !important; --tw-gradient-to-position: 100% !important; }
+.from-pink-300 { --tw-gradient-from: #ffd60a !important; --tw-gradient-from-position: 0% !important; }
+.to-violet-300 { --tw-gradient-to: #bcc83a !important; --tw-gradient-to-position: 100% !important; }
+.from-violet-300 { background-image: linear-gradient(to right, var(--tw-gradient-stops)) !important; }
+
+/* 滑轨（原来紫轨粉头 → 酸黄） */
+.custom-slider {
+  background: linear-gradient(to right, rgba(223, 255, 0, 0.82) 0%, rgba(223, 255, 0, 0.82) var(--slider-progress), rgba(255, 255, 255, 0.35) var(--slider-progress), rgba(255, 255, 255, 0.35) 100%) !important;
+}
+.custom-slider::-webkit-slider-thumb {
+  background: linear-gradient(135deg, rgba(240, 255, 100, 0.98), rgba(223, 255, 0, 0.98)) !important;
+  box-shadow: 0 2px 6px rgba(223, 255, 0, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.7), inset 0 1px 0 rgba(255, 255, 255, 0.6) !important;
+}
+.custom-slider::-moz-range-thumb {
+  background: linear-gradient(135deg, rgba(240, 255, 100, 0.98), rgba(223, 255, 0, 0.98)) !important;
+  box-shadow: 0 2px 6px rgba(223, 255, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.6) !important;
+}
+.custom-slider::-webkit-slider-thumb:hover { box-shadow: 0 3px 10px rgba(223, 255, 0, 0.7) !important; }
