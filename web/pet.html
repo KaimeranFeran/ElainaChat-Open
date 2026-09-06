@@ -8,21 +8,29 @@
 </head>
 <body>
 <div id="stage">
-  <div id="dragStrip" title="拖我"></div>
-  <div id="bubbleScroller">
-    <div class="bubble bot hidden" id="helloBubble">你好呀，我是伊蕾娜～</div>
+  <div id="dragStrip" title="按住拖动"></div>
+
+  <!-- 顶部：气泡区 -->
+  <div id="dialogZone">
+    <div id="bubbleScroller">
+      <div class="pet-bubble bot" id="helloBubble">
+        <div class="pet-speak">伊蕾娜</div>
+        <div class="pet-msg">你好呀，我是伊蕾娜～</div>
+      </div>
+    </div>
   </div>
-  <div id="live2dWrap">
-    <canvas id="petCanvas"></canvas>
+
+  <!-- 中部：立绘（静态画面 + 呼吸动画） -->
+  <div id="avatarZone">
+    <img id="petAvatar" src="img/hiyori.png" alt="伊蕾娜">
   </div>
-  <div id="inputRow">
+
+  <!-- 底部：输入 -->
+  <div id="inputZone">
     <input id="petInput" type="text" placeholder="和伊蕾娜说点什么…" autocomplete="off">
     <button id="petSend" type="button">➤</button>
   </div>
 </div>
-<script src="vendor/live2d/live2dcubismcore.min.js"></script>
-<script src="vendor/live2d/pixi.min.js"></script>
-<script src="vendor/live2d/live2d-display.cubism4.min.js"></script>
 <script src="pet.js"></script>
 </body>
 </html>

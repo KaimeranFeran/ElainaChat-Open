@@ -2,50 +2,59 @@
 html, body { width: 100%; height: 100%; overflow: hidden; background: transparent; font-family: "Outfit", "PingFang SC", "Microsoft YaHei", sans-serif; }
 #stage { position: relative; width: 100%; height: 100%; display: flex; flex-direction: column; }
 
-/* 顶部拖拽条（PC: Win32 拖动；安卓: 原生 Service 判顶区拖动） */
-#dragStrip { position: absolute; top: 0; left: 0; right: 0; height: 26px; z-index: 30;
-  background: linear-gradient(180deg, rgba(0,122,255,0.28), transparent);
-  border-radius: 0 0 14px 14px; cursor: grab; -webkit-user-select: none; }
+/* 拖拽条 */
+#dragStrip { position: absolute; top: 0; left: 10px; right: 10px; height: 22px; z-index: 40; cursor: grab; -webkit-user-select: none;
+  border-radius: 0 0 12px 12px; background: linear-gradient(180deg, rgba(0,122,255,0.25), transparent); }
 #dragStrip:active { cursor: grabbing; }
 
-/* 气泡区 */
-#bubbleScroller { position: relative; z-index: 20; flex: 0 0 auto; max-height: 46%;
-  overflow-y: auto; padding: 30px 10px 6px; display: flex; flex-direction: column; gap: 6px;
-  -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+/* ============ 顶部：气泡（LingChat 深色玻璃风格） ============ */
+#dialogZone { position: relative; z-index: 30; flex: 0 0 38%; display: flex; flex-direction: column; justify-content: flex-end;
+  padding: 22px 10px 8px; pointer-events: none; }
+#bubbleScroller { pointer-events: auto; overflow-y: auto; display: flex; flex-direction: column; gap: 8px;
+  scrollbar-width: none; -webkit-overflow-scrolling: touch; max-height: 100%; }
 #bubbleScroller::-webkit-scrollbar { display: none; }
-.bubble { max-width: 88%; padding: 9px 12px; border-radius: 16px; font-size: 13px; line-height: 1.55;
-  color: #1f2b40; background: rgba(255,255,255,0.82);
-  border: 1px solid rgba(255,255,255,0.95);
-  box-shadow: 0 8px 22px rgba(18,30,50,0.12), inset 0 1px 0 rgba(255,255,255,0.95);
-  backdrop-filter: blur(14px) saturate(1.4); -webkit-backdrop-filter: blur(14px) saturate(1.4);
-  animation: bubble-in .28s cubic-bezier(.3,1.35,.5,1) both; word-break: break-word; }
-.bubble.bot { align-self: flex-start; border-radius: 16px 16px 16px 5px; }
-.bubble.me { align-self: flex-end; background: linear-gradient(135deg, rgba(26,140,255,0.95), rgba(0,110,230,0.95)); color: #fff;
-  border-radius: 16px 16px 5px 16px; border-color: rgba(255,255,255,0.35);
-  box-shadow: 0 8px 22px rgba(0,100,220,0.3), inset 0 1px 0 rgba(255,255,255,0.4); }
-.bubble pre { white-space: pre-wrap; font-family: inherit; }
-@keyframes bubble-in { from { opacity: 0; transform: translateY(8px) scale(.94); } to { opacity: 1; transform: none; } }
+.pet-bubble { position: relative; max-width: 88%; padding: 10px 16px; border-radius: 20px; color: #fff;
+  background: rgba(10, 13, 18, 0.58); border: 1px solid rgba(255,255,255,0.10);
+  backdrop-filter: blur(20px) saturate(1.6); -webkit-backdrop-filter: blur(20px) saturate(1.6);
+  box-shadow: 0 10px 30px rgba(0,0,0,0.25); text-shadow: 0 1px 3px rgba(0,0,0,0.5);
+  animation: bubble-in .3s cubic-bezier(.3,1.2,.4,1) both; word-break: break-word; }
+.pet-bubble::before, .pet-bubble::after { content: ""; position: absolute; left: 30px; bottom: -9px; width: 0; height: 0; }
+.pet-bubble::before { border-left: 10px solid transparent; border-right: 10px solid transparent; border-top: 10px solid rgba(255,255,255,0.10); }
+.pet-bubble::after { left: 31px; bottom: -7px; border-left: 9px solid transparent; border-right: 9px solid transparent; border-top: 9px solid rgba(10,13,18,0.58); }
+.pet-bubble.me { align-self: flex-end; text-align: right; border-radius: 20px; }
+.pet-bubble.me::before { left: auto; right: 30px; }
+.pet-bubble.me::after { left: auto; right: 31px; }
+.pet-speak { display: inline-block; margin-bottom: 3px; font-size: 12px; font-weight: 700; letter-spacing: .04em;
+  color: #4dd0ff; font-style: italic; text-shadow: 0 1px 4px rgba(0,176,255,0.5); }
+.pet-msg { font-size: 14.5px; line-height: 1.6; white-space: pre-wrap; }
+@keyframes bubble-in { from { opacity: 0; transform: translateY(10px) scale(.96); } to { opacity: 1; transform: none; } }
 
-/* Live2D 画布 */
-#live2dWrap { position: relative; flex: 1 1 auto; min-height: 0; z-index: 10; }
-#petCanvas { width: 100%; height: 100%; display: block; }
+/* ============ 中部：立绘 ============ */
+#avatarZone { position: relative; z-index: 10; flex: 1 1 auto; min-height: 0; display: flex; align-items: flex-end; justify-content: center; }
+#petAvatar { width: 100%; height: 100%; object-fit: cover; object-position: 50% 12%; -webkit-user-drag: none; user-select: none;
+  animation: pet-breathe 6.5s ease-in-out infinite, pet-bob 9s ease-in-out 1.2s infinite;
+  filter: drop-shadow(0 12px 28px rgba(0,0,0,0.28)); transform-origin: bottom center; }
+@keyframes pet-breathe { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.015); } }
+@keyframes pet-bob { 0%, 100% { translate: 0 0; } 50% { translate: 0 -5px; } }
 
-/* 输入行 */
-#inputRow { position: relative; z-index: 30; flex: 0 0 auto; display: flex; gap: 8px; padding: 8px 10px calc(8px + env(safe-area-inset-bottom, 0px));
-  background: rgba(252,253,255,0.72); border-top: 1px solid rgba(255,255,255,0.8);
-  backdrop-filter: blur(16px) saturate(1.4); -webkit-backdrop-filter: blur(16px) saturate(1.4); }
-#petInput { flex: 1 1 auto; min-width: 0; height: 36px; border: 0; outline: 0; border-radius: 12px;
-  padding: 0 12px; font-size: 13px; background: rgba(255,255,255,0.9); color: #1f2b40;
-  box-shadow: inset 0 1px 2px rgba(84,102,130,0.10); }
-#petInput::placeholder { color: #8a94a8; }
-#petSend { flex: 0 0 auto; width: 36px; height: 36px; border: 0; border-radius: 12px; cursor: pointer;
-  background: linear-gradient(180deg, #1a8cff, #006ee6); color: #fff; font-size: 14px;
-  box-shadow: 0 4px 12px rgba(0,100,220,0.3), inset 0 1px 0 rgba(255,255,255,0.4);
+/* ============ 底部：输入（深色玻璃） ============ */
+#inputZone { position: relative; z-index: 30; flex: 0 0 auto; display: flex; gap: 8px; align-items: center;
+  padding: 9px 10px calc(9px + env(safe-area-inset-bottom, 0px));
+  background: rgba(10, 13, 18, 0.55); border-top: 1px solid rgba(255,255,255,0.10);
+  backdrop-filter: blur(18px) saturate(1.5); -webkit-backdrop-filter: blur(18px) saturate(1.5); }
+#petInput { flex: 1 1 auto; min-width: 0; height: 38px; border: 1px solid rgba(255,255,255,0.12); outline: 0;
+  border-radius: 14px; padding: 0 14px; font-size: 14px; color: #fff;
+  background: rgba(255,255,255,0.07); transition: border-color .18s ease, background .18s ease; }
+#petInput::placeholder { color: rgba(255,255,255,0.38); }
+#petInput:focus { border-color: rgba(0,140,255,0.55); background: rgba(255,255,255,0.10); }
+#petSend { flex: 0 0 auto; width: 38px; height: 38px; border: 0; border-radius: 50%; cursor: pointer; font-size: 14px;
+  background: linear-gradient(180deg, #1a8cff, #006ee6); color: #fff;
+  box-shadow: 0 6px 18px rgba(0,100,220,0.4), inset 0 1px 0 rgba(255,255,255,0.4);
   transition: transform .15s cubic-bezier(.3,1.35,.5,1); -webkit-tap-highlight-color: transparent; }
-#petSend:active { transform: scale(.92); }
+#petSend:active { transform: scale(.9); }
 
 /* 状态提示 */
-#statusTip { position: absolute; left: 50%; bottom: 54px; transform: translateX(-50%); z-index: 40;
-  padding: 4px 10px; border-radius: 999px; background: rgba(20,26,36,0.85); color: #fff;
-  font-size: 11px; opacity: 0; transition: opacity .2s ease; pointer-events: none; }
+#statusTip { position: absolute; left: 50%; bottom: 62px; transform: translateX(-50%); z-index: 50;
+  padding: 4px 12px; border-radius: 999px; background: rgba(10,13,18,0.85); color: #fff; border: 1px solid rgba(255,255,255,0.12);
+  font-size: 11px; opacity: 0; transition: opacity .2s ease; pointer-events: none; white-space: nowrap; }
 #statusTip.show { opacity: 1; }
