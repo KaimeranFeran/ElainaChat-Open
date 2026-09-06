@@ -4,6 +4,16 @@
    showMemoryExportDialog/runManualMemorySummary），不改变任何业务逻辑。 */
 (() => {
   'use strict';
+  /* PC 桌面：未配置网关时 seed 默认地址（与原生一致读 baseUrl） */
+  try {
+    if (window.__PC_DESKTOP && window.__PC_DEFAULT_GW) {
+      const st = localStorage.getItem('elaina_settings');
+      if (st) {
+        const o = JSON.parse(st);
+        if (!o.baseUrl) { o.baseUrl = window.__PC_DEFAULT_GW; localStorage.setItem('elaina_settings', JSON.stringify(o)); }
+      }
+    }
+  } catch (e) {}
   const ICON = {
     folder: '<svg fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>',
     import: '<svg fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>',
@@ -173,10 +183,8 @@
       '<input type="range" min="5" max="60" step="5" value="15" class="custom-slider sw-pet-interval-slider" id="swPetInterval" style="flex:1 1 auto;margin-left:10px">' +
       '<span class="sw-ttl" id="swPetIntervalLabel" style="font-weight:600;min-width:72px;text-align:right">15 分钟</span></div>' +
       '<div class="sw-setting-theme-row sw-pet-scale-row" style="display:none"><div class="sw-ttl" style="flex:0 0 auto;width:96px">桌宠尺度</div>' +
-      '<div class="sw-scale-group" style="display:flex;gap:8px;flex:1 1 auto;margin-left:10px">' +
-      '<button type="button" class="sw-seg sw-scale-btn" data-scale="small" style="min-height:32px;flex:1">小</button>' +
-      '<button type="button" class="sw-seg sw-scale-btn" data-scale="normal" style="min-height:32px;flex:1">中</button>' +
-      '<button type="button" class="sw-seg sw-scale-btn" data-scale="large" style="min-height:32px;flex:1">大</button></div></div>' +
+      '<input type="range" min="0.6" max="1.6" step="0.1" value="1" class="custom-slider" id="swPetScale" style="flex:1 1 auto;margin-left:10px">' +
+      '<span class="sw-ttl" id="swPetScaleLabel" style="min-width:56px;text-align:right;font-weight:600">100%</span></div>' +
       '<div class="sw-setting-theme-row sw-pet-ct-row" style="display:none"><div class="sw-ttl">内容点击穿透</div><div class="sw-switch off" id="swPetCt"></div></div>' +
       '<div class="sw-setting-theme-row sw-pet-perm-row" style="display:none"><div class="sw-ttl" style="flex:1 1 auto">权限引导（安卓）</div>' +
       '<div style="display:flex;gap:8px;flex:0 0 auto"><button type="button" class="sw-seg sw-perm-btn" data-perm="acc" style="min-height:30px;font-size:11px">无障碍</button>' +
@@ -186,9 +194,15 @@
     themeSec.insertAdjacentElement('afterend', sec);
     const rows = { main: document.getElementById('swPetMain'), pro: document.getElementById('swPetPro'), ct: document.getElementById('swPetCt') };
     const setSwitch = (el, on) => el.classList.toggle('on', !!on);
-    const currentScale = () => { const v = PK('scale', 'normal'); return ['small', 'normal', 'large'].includes(v) ? v : 'normal'; };
+    const currentScale = () => {
+      const v = Number(PK('scale', '1')) || 1;
+      return Math.max(0.6, Math.min(1.6, v));
+    };
     const syncScale = () => {
-      sec.querySelectorAll('.sw-scale-btn').forEach(b => b.classList.toggle('active', b.getAttribute('data-scale') === currentScale()));
+      const inp = document.getElementById('swPetScale');
+      const lb = document.getElementById('swPetScaleLabel');
+      if (inp) inp.value = String(currentScale());
+      if (lb) lb.textContent = Math.round(currentScale() * 100) + '%';
     };
     const syncRows = () => {
       const on = PK('enabled', '0') === '1';
@@ -228,7 +242,12 @@
       if (lb) lb.textContent = inp.value + ' 分钟';
     });
     inp.addEventListener('change', () => { SK('interval', String(inp.value)); notifyPet(); });
-    sec.querySelectorAll('.sw-scale-btn').forEach(b => b.addEventListener('click', () => { SK('scale', b.getAttribute('data-scale')); syncScale(); notifyPet(); }));
+    const scaleInp = document.getElementById('swPetScale');
+    scaleInp.addEventListener('input', () => {
+      const lb = document.getElementById('swPetScaleLabel');
+      if (lb) lb.textContent = Math.round(Number(scaleInp.value) * 100) + '%';
+    });
+    scaleInp.addEventListener('change', () => { SK('scale', String(scaleInp.value)); notifyPet(); });
     sec.querySelectorAll('.sw-perm-btn').forEach(b => b.addEventListener('click', () => {
       try {
         const cap = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.ElainaPet;
@@ -242,8 +261,21 @@
     function notifyPet() {
       const on = PK('enabled', '0') === '1';
       try {
-        const bus = window.__elainaPetBus;
-        if (bus) bus.setEnabled(on);
+        const cap = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.ElainaPet;
+        if (cap) {
+          let st = {};
+          try { st = (typeof state !== 'undefined' && state.settings) ? state.settings : {}; } catch (e) {}
+          cap.setEnabled({
+            enabled: on,
+            baseUrl: String(st.baseUrl || ''),
+            apiKey: String(st.apiKey || ''),
+            systemPrompt: String(st.characterPrompt || ''),
+            interval: Number(PK('interval', '15')) || 15,
+            proactive: PK('proactive', '0') === '1',
+            scale: Number(PK('scale', '1')) || 1,
+            clickthrough: PK('clickthrough', '0') === '1'
+          });
+        }
       } catch (e) {}
       try {
         if (window.chrome && window.chrome.webview) window.chrome.webview.postMessage({ kind: 'pet-enabled', payload: on });
