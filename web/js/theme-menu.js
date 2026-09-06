@@ -157,20 +157,124 @@
     syncThemeUI();
   }, 'theme settings row');
 
-  /* ---- 5) Finder 顶栏：设置分段导航 + 分块切换 + 滑动动画 ---- */
+    /* ---- 8) 桌宠设置（Finder「桌宠」分段；全部默认关闭） ---- */
+  safe(() => {
+    const themeSec = document.getElementById('themeSettingSection');
+    if (!themeSec || document.getElementById('petSettingSection')) return;
+    const PK = (k, d) => { try { const v = localStorage.getItem('elaina_pet_' + k); return v === null ? d : v; } catch (e) { return d; } };
+    const SK = (k, v) => { try { localStorage.setItem('elaina_pet_' + k, v); } catch (e) {} };
+    const sec = document.createElement('section');
+    sec.id = 'petSettingSection';
+    sec.innerHTML =
+      '<div class="modal-label flex items-center gap-2"><span class="text-violet-500">✦</span> 桌宠</div>' +
+      '<div class="sw-setting-theme-row sw-pet-enable-row"><div class="sw-ttl">启用桌宠</div><div class="sw-switch off" id="swPetMain"></div></div>' +
+      '<div class="sw-setting-theme-row sw-pet-pro-row" style="display:none"><div class="sw-ttl">桌宠主动回复</div><div class="sw-switch off" id="swPetPro"></div></div>' +
+      '<div class="sw-setting-theme-row sw-pet-interval-row" style="display:none"><div class="sw-ttl" style="flex:0 0 auto;width:96px">间隔（分钟）</div>' +
+      '<input type="range" min="5" max="60" step="5" value="15" class="custom-slider sw-pet-interval-slider" id="swPetInterval" style="flex:1 1 auto;margin-left:10px">' +
+      '<span class="sw-ttl" id="swPetIntervalLabel" style="font-weight:600;min-width:72px;text-align:right">15 分钟</span></div>' +
+      '<div class="sw-setting-theme-row sw-pet-scale-row" style="display:none"><div class="sw-ttl" style="flex:0 0 auto;width:96px">桌宠尺度</div>' +
+      '<div class="sw-scale-group" style="display:flex;gap:8px;flex:1 1 auto;margin-left:10px">' +
+      '<button type="button" class="sw-seg sw-scale-btn" data-scale="small" style="min-height:32px;flex:1">小</button>' +
+      '<button type="button" class="sw-seg sw-scale-btn" data-scale="normal" style="min-height:32px;flex:1">中</button>' +
+      '<button type="button" class="sw-seg sw-scale-btn" data-scale="large" style="min-height:32px;flex:1">大</button></div></div>' +
+      '<div class="sw-setting-theme-row sw-pet-ct-row" style="display:none"><div class="sw-ttl">内容点击穿透</div><div class="sw-switch off" id="swPetCt"></div></div>' +
+      '<div class="sw-setting-theme-row sw-pet-perm-row" style="display:none"><div class="sw-ttl" style="flex:1 1 auto">权限引导（安卓）</div>' +
+      '<div style="display:flex;gap:8px;flex:0 0 auto"><button type="button" class="sw-seg sw-perm-btn" data-perm="acc" style="min-height:30px;font-size:11px">无障碍</button>' +
+      '<button type="button" class="sw-seg sw-perm-btn" data-perm="overlay" style="min-height:30px;font-size:11px">悬浮窗</button>' +
+      '<button type="button" class="sw-seg sw-perm-btn" data-perm="battery" style="min-height:30px;font-size:11px">电池</button></div></div>' +
+      '<p class="text-[11px] text-indigo-300 leading-relaxed" style="padding:8px 4px 0">开启后出现伊蕾娜桌宠（PC 悬浮窗 / 安卓悬浮窗+无障碍读界面）。主动回复开启后每隔设定时长读取当前页面并主动找你说话。安卓首次开启请到权限引导完成授权；可在系统设置里关闭（默认关闭）。</p>';
+    themeSec.insertAdjacentElement('afterend', sec);
+    const rows = { main: document.getElementById('swPetMain'), pro: document.getElementById('swPetPro'), ct: document.getElementById('swPetCt') };
+    const setSwitch = (el, on) => el.classList.toggle('on', !!on);
+    const currentScale = () => { const v = PK('scale', 'normal'); return ['small', 'normal', 'large'].includes(v) ? v : 'normal'; };
+    const syncScale = () => {
+      sec.querySelectorAll('.sw-scale-btn').forEach(b => b.classList.toggle('active', b.getAttribute('data-scale') === currentScale()));
+    };
+    const syncRows = () => {
+      const on = PK('enabled', '0') === '1';
+      setSwitch(rows.main, on);
+      ['pro', 'interval', 'scale', 'ct', 'perm'].forEach(k => {
+        const r = sec.querySelector('.sw-pet-' + k + '-row');
+        if (r) r.style.display = on ? '' : 'none';
+      });
+      setSwitch(rows.pro, PK('proactive', '0') === '1');
+      setSwitch(rows.ct, PK('clickthrough', '0') === '1');
+      const iv = Math.max(5, Math.min(60, Number(PK('interval', '15')) || 15));
+      const inp = document.getElementById('swPetInterval');
+      if (inp) inp.value = iv;
+      const lb = document.getElementById('swPetIntervalLabel');
+      if (lb) lb.textContent = iv + ' 分钟';
+      syncScale();
+    };
+    document.querySelector('.sw-pet-enable-row .sw-switch').addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      SK('enabled', PK('enabled', '0') === '1' ? '0' : '1');
+      syncRows();
+      notifyPet();
+    });
+    document.querySelector('.sw-pet-pro-row .sw-switch').addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      SK('proactive', PK('proactive', '0') === '1' ? '0' : '1');
+      syncRows(); notifyPet();
+    });
+    document.querySelector('.sw-pet-ct-row .sw-switch').addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      SK('clickthrough', PK('clickthrough', '0') === '1' ? '0' : '1');
+      syncRows(); notifyPet();
+    });
+    const inp = document.getElementById('swPetInterval');
+    inp.addEventListener('input', () => {
+      const lb = document.getElementById('swPetIntervalLabel');
+      if (lb) lb.textContent = inp.value + ' 分钟';
+    });
+    inp.addEventListener('change', () => { SK('interval', String(inp.value)); notifyPet(); });
+    sec.querySelectorAll('.sw-scale-btn').forEach(b => b.addEventListener('click', () => { SK('scale', b.getAttribute('data-scale')); syncScale(); notifyPet(); }));
+    sec.querySelectorAll('.sw-perm-btn').forEach(b => b.addEventListener('click', () => {
+      try {
+        const cap = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.ElainaPet;
+        if (!cap) { showTip && showTip('仅安卓端生效（当前为网页/PC 环境）'); return; }
+        const perm = b.getAttribute('data-perm');
+        if (perm === 'acc') cap.openAccessibilitySettings();
+        else if (perm === 'overlay') cap.openOverlaySettings();
+        else cap.openBatteryWhitelist();
+      } catch (e) {}
+    }));
+    function notifyPet() {
+      try {
+        const bus = window.__elainaPetBus;
+        if (bus) bus.setEnabled(PK('enabled', '0') === '1');
+      } catch (e) {}
+    }
+    syncRows();
+  }, 'pet settings');
+
+
+  /* ---- 5) Finder 顶栏：设置分段导航（元素定位分组）+ 分块切换 + 滑动动画 ---- */
   safe(() => {
     const content = document.getElementById('settingsContent');
     if (!content || content.querySelector('.sw-setting-nav')) return;
     const secs = Array.from(content.querySelectorAll(':scope > section'));
     if (secs.length < 3) return;
-    // 分组（按注入后的静态顺序）
+    const labelOf = (s) => { const l = s.querySelector('.modal-label'); return l ? l.textContent || '' : ''; };
+    const findIdx = (pred) => secs.findIndex(pred);
+    const idx = {
+      theme: findIdx(s => s.id === 'themeSettingSection'),
+      pet: findIdx(s => s.id === 'petSettingSection'),
+      char: findIdx(s => s.id === 'characterSettingsSection'),
+      cloud: findIdx(s => labelOf(s).indexOf('云端连接') >= 0),
+      voice: findIdx(s => labelOf(s).indexOf('语音输出') >= 0),
+      asr: findIdx(s => labelOf(s).indexOf('语音输入') >= 0),
+      mem: findIdx(s => labelOf(s).indexOf('记忆') >= 0 && labelOf(s).indexOf('日志') < 0),
+      log: findIdx(s => labelOf(s).indexOf('日志') >= 0)
+    };
     const groups = [
-      { label: '外观', idx: [0] },
-      { label: '连接', idx: [1, 3] },
-      { label: '语音', idx: [2] },
-      { label: '记忆与日志', idx: [4, 5] },
-      { label: '角色设定', idx: [6] }
-    ];
+      { label: '外观', idx: [idx.theme] },
+      { label: '连接', idx: [idx.cloud, idx.asr] },
+      { label: '语音', idx: [idx.voice] },
+      { label: '记忆与日志', idx: [idx.mem, idx.log] },
+      { label: '角色设定', idx: [idx.char] },
+      { label: '桌宠', idx: [idx.pet] }
+    ].filter(g => g.idx.every(i => i >= 0));
     const nav = document.createElement('div');
     nav.className = 'sw-setting-nav';
     content.insertBefore(nav, content.firstChild);
@@ -180,7 +284,6 @@
       const visible = new Set(groups[gi].idx);
       secs.forEach((s, si) => {
         const show = visible.has(si);
-        const old = s.classList.contains('hidden');
         if (show) s.classList.remove('hidden');
         else s.classList.add('hidden');
         if (show && animate) {
@@ -192,7 +295,7 @@
       });
       segs.forEach((seg, si) => seg.classList.toggle('active', si === gi));
       prev = gi;
-      try { localStorage.setItem('elaina_settings_tab', String(gi)); } catch (e) {}
+      try { localStorage.setItem('elaina_settings_tab', groups[gi].label); } catch (e) {}
     };
     groups.forEach((g, gi) => {
       const seg = document.createElement('button');
@@ -204,9 +307,14 @@
       segs.push(seg);
     });
     let initial = 0;
-    try { const t = parseInt(localStorage.getItem('elaina_settings_tab') || '0', 10); if (!isNaN(t) && t >= 0 && t < groups.length) initial = t; } catch (e) {}
+    try {
+      const t = localStorage.getItem('elaina_settings_tab');
+      const ti = groups.findIndex(g => g.label === t);
+      if (ti >= 0) initial = ti;
+    } catch (e) {}
     apply(initial, false);
   }, 'settings nav');
+
 
   /* ---- 6) 语音 seek：长按放大 → 声纹分段（已播/未播）→ 按住拖动跳转 ---- */
   safe(() => {
@@ -409,70 +517,5 @@
     setTpl(currentTpl());
   }, 'template picker');
 
-
-  /* ---- 8) 桌宠设置（默认关闭；主动回复+间隔 5-60 分钟） ---- */
-  safe(() => {
-    const themeSec = document.getElementById('themeSettingSection');
-    if (!themeSec || document.getElementById('petSettingSection')) return;
-    const PK = (k, d) => { try { const v = localStorage.getItem('elaina_pet_' + k); return v === null ? d : v; } catch (e) { return d; } };
-    const SK = (k, v) => { try { localStorage.setItem('elaina_pet_' + k, v); } catch (e) {} };
-    const sec = document.createElement('section');
-    sec.id = 'petSettingSection';
-    sec.innerHTML =
-      '<div class="modal-label flex items-center gap-2"><span class="text-violet-500">✦</span> 桌宠</div>' +
-      '<div class="sw-setting-theme-row sw-pet-enable-row"><div class="sw-ttl">启用桌宠</div><div class="sw-switch off" id="swPetMain"></div></div>' +
-      '<div class="sw-setting-theme-row sw-pet-pro-row" style="display:none"><div class="sw-ttl">桌宠主动回复</div><div class="sw-switch off" id="swPetPro"></div></div>' +
-      '<div class="sw-setting-theme-row sw-pet-interval-row" style="display:none"><div class="sw-ttl" style="flex:0 0 auto;width:96px">间隔（分钟）</div>' +
-      '<input type="range" min="5" max="60" step="5" value="15" class="custom-slider" id="swPetInterval" style="flex:1 1 auto;margin-left:10px">' +
-      '<span class="sw-ttl" id="swPetIntervalLabel" style="font-weight:600;min-width:72px;text-align:right">15 分钟</span></div>' +
-      '<p class="text-[11px] text-indigo-300 leading-relaxed" style="padding:8px 4px 0">开启后出现 Elaina 桌宠（PC 端为悬浮窗；安卓端为悬浮窗+无障碍读取界面）。主动回复开启后，每隔设定时长读取当前页面内容并主动找你说一句话（默认关闭）。</p>';
-    themeSec.insertAdjacentElement('afterend', sec);
-    const rows = { main: document.getElementById('swPetMain'), pro: document.getElementById('swPetPro') };
-    const setSwitch = (el, on) => el.classList.toggle('on', !!on);
-    const syncRows = () => {
-      const on = PK('enabled', '0') === '1';
-      setSwitch(rows.main, on);
-      const proRow = sec.querySelector('.sw-pet-pro-row');
-      const intRow = sec.querySelector('.sw-pet-interval-row');
-      if (proRow) proRow.style.display = on ? '' : 'none';
-      if (intRow) intRow.style.display = on ? '' : 'none';
-      setSwitch(rows.pro, PK('proactive', '0') === '1');
-      const iv = Math.max(5, Math.min(60, Number(PK('interval', '15')) || 15));
-      const inp = document.getElementById('swPetInterval');
-      if (inp) inp.value = iv;
-      const lb = document.getElementById('swPetIntervalLabel');
-      if (lb) lb.textContent = iv + ' 分钟';
-    };
-    document.getElementById('swPetMain').parentElement.addEventListener('click', (ev) => {
-      if (ev.target.closest('#swPetMain')) return;
-      const on = PK('enabled', '0') !== '1';
-      SK('enabled', on ? '1' : '0');
-      syncRows();
-    });
-    document.querySelector('.sw-pet-enable-row .sw-switch').addEventListener('click', (ev) => {
-      ev.stopPropagation();
-      SK('enabled', PK('enabled', '0') === '1' ? '0' : '1');
-      syncRows();
-    });
-    document.querySelector('.sw-pet-pro-row .sw-switch').addEventListener('click', (ev) => {
-      ev.stopPropagation();
-      SK('proactive', PK('proactive', '0') === '1' ? '0' : '1');
-      syncRows();
-    });
-    const inp = document.getElementById('swPetInterval');
-    inp.addEventListener('input', () => {
-      const lb = document.getElementById('swPetIntervalLabel');
-      if (lb) lb.textContent = inp.value + ' 分钟';
-    });
-    inp.addEventListener('change', () => SK('interval', String(inp.value)));
-    syncRows();
-    /* 通知桌面/原生端：启用状态变化 */
-    document.addEventListener('click', () => {
-      try {
-        const bus = window.__elainaPetBus;
-        if (bus) bus.setEnabled(PK('enabled', '0') === '1');
-      } catch (e) {}
-    });
-  }, 'pet settings');
 
 })();
