@@ -600,6 +600,7 @@ ${DEFAULT_CHARACTER_PREFERENCES}
         function getGatewayBaseUrl() {
             // Web 版（非原生）：走同源代理（serve.mjs 读取 web/config.json 转发网关），绕过浏览器跨域限制
             if (!isNativeEnv() && !window.__PC_DESKTOP) return '';
+            if (window.__PC_DESKTOP && window.__PC_PROXY_BASE) return window.__PC_PROXY_BASE;
             const raw = String(state.settings.baseUrl || '').trim().replace(/\/$/, '');
             if (!raw) throw new Error('请先在设置中填写云端服务地址');
             let parsed;
@@ -609,7 +610,8 @@ ${DEFAULT_CHARACTER_PREFERENCES}
         }
 
         function getGatewayWebSocketUrl(appKey) {
-            const url = new URL(getGatewayBaseUrl());
+            const rawBase = window.__PC_DESKTOP ? String(state.settings.baseUrl || '').trim().replace(/\/$/, '') : getGatewayBaseUrl();
+            const url = new URL(rawBase || getGatewayBaseUrl());
             url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
             url.pathname = '/ws-tts';
             url.search = '';

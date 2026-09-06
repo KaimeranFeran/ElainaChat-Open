@@ -4,7 +4,17 @@
    showMemoryExportDialog/runManualMemorySummary），不改变任何业务逻辑。 */
 (() => {
   'use strict';
-  /* PC 桌面：未配置网关时 seed 默认地址（与原生一致读 baseUrl） */
+  /* PC 桌面：未配置网关时 seed 默认地址 + 同步给本地代理（C#） */
+  try {
+    if (window.__PC_DESKTOP && window.chrome && window.chrome.webview) {
+      setTimeout(function () {
+        try {
+          var o = JSON.parse(localStorage.getItem('elaina_settings') || '{}');
+          window.chrome.webview.postMessage({ kind: 'gateway', payload: o.baseUrl || '' });
+        } catch (e) {}
+      }, 1500);
+    }
+  } catch (e) {}
   try {
     if (window.__PC_DESKTOP && window.__PC_DEFAULT_GW) {
       const st = localStorage.getItem('elaina_settings');
