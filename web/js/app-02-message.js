@@ -111,6 +111,31 @@
             return Math.max(2, Math.ceil((cjkCount / 4.5 + latinWords / 2.4 + punctuationPauses) / speed));
         }
 
+        /* ---- Markdown + LaTeX 渲染（消息正文） ---- */
+        function renderMessageText(text) {
+            const raw = String(text || '');
+            const hasMd = /(^|\n)\s*(#{1,6}\s|[-*+]\s|>\s|\u0060\u0060\u0060|---|\d+\.\s)|(\*\*[^*]+\*\*|\u0060[^\u0060]+\u0060|\[[^\]]+\]\([^)]+\))|(\$\$|(?:^|[^\\])\$[^$\n]{1,200}\$)/.test(raw);
+            const mdObj = window.marked;
+            const mdParse = (typeof mdObj === 'function') ? mdObj : (mdObj && typeof mdObj.parse === 'function') ? mdObj.parse.bind(mdObj) : null;
+            if (!hasMd || !mdParse) return escapeHtml(raw);
+            const mathStore = [];
+            let safe = escapeHtml(raw);
+            safe = safe.replace(/\$\$([\s\S]+?)\$\$/g, (m, tex) => { mathStore.push({ tex: tex, d: true }); return '\uE000' + (mathStore.length - 1) + '\uE001'; });
+            safe = safe.replace(/(^|[^\\])\$([^$\n]{1,200})\$/g, (m, pre, tex) => { mathStore.push({ tex: tex, d: false }); return pre + '\uE000' + (mathStore.length - 1) + '\uE001'; });
+            let html;
+            try { html = mdParse(safe, { breaks: true, gfm: true }); }
+            catch (e) { return escapeHtml(raw); }
+            if (mathStore.length && window.katex) {
+                html = html.replace(/\uE000(\d+)\uE001/g, (m, i) => {
+                    const it = mathStore[Number(i)];
+                    if (!it) return m;
+                    try { return window.katex.renderToString(it.tex, { displayMode: !!it.d, throwOnError: false }); }
+                    catch (e) { return escapeHtml(it.tex); }
+                });
+            }
+            return '<div class="markdown-body">' + html + '</div>';
+        }
+
         function formatVoiceDuration(seconds) {
             const safeSeconds = Math.max(0, Math.round(Number(seconds) || 0));
             return `${Math.floor(safeSeconds / 60)}:${String(safeSeconds % 60).padStart(2, '0')}`;
@@ -289,7 +314,7 @@
                                     </button>
                                 </div>
                                 ${userImageUrl ? `<img class="message-image" src="${userImageUrl}" alt="${escapeHtml(message.imageName || '用户发送的图片')}" loading="lazy" decoding="async">` : ''}
-                                ${message.text ? `<p class="text-indigo-800 text-sm leading-relaxed whitespace-pre-wrap">${escapeHtml(message.text)}</p>` : ''}
+                                ${message.text ? `<div class="msg-text">${renderMessageText(message.text)}</div>` : ''}
                             </div>
                         </div>
                     </div>
@@ -328,7 +353,7 @@
                                         <span class="text-xs font-medium">${faved ? '已收藏' : '收藏'}</span>
                                     </button>
                                 </div>
-                                <p class="text-indigo-950 text-sm leading-relaxed whitespace-pre-wrap">${escapeHtml(message.text)}</p>
+                                <div class="msg-text">${renderMessageText(message.text)}</div>
                                 ${voiceCard}
                             </div>
                         </div>

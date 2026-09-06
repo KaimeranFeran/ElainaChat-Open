@@ -21,8 +21,7 @@ async function copyDir(src, dst) {
 await mkdir(path.join(androidWebRoot, 'vendor'), { recursive: true });
 await copyFile(path.join(sourceRoot, 'index.html'), path.join(androidWebRoot, 'index.html'));
 await copyFile(path.join(sourceRoot, 'vendor', 'tailwind.js'), path.join(androidWebRoot, 'vendor', 'tailwind.js'));
-await copyFile(path.join(sourceRoot, 'vendor', 'qrcode.js'), path.join(androidWebRoot, 'vendor', 'qrcode.js'));
-await copyFile(path.join(sourceRoot, 'vendor', 'jsQR.js'), path.join(androidWebRoot, 'vendor', 'jsQR.js'));
+await copyDir(path.join(sourceRoot, 'vendor'), path.join(androidWebRoot, 'vendor'));
 await copyDir(path.join(sourceRoot, 'assets'), path.join(androidWebRoot, 'assets'));
 await copyDir(path.join(sourceRoot, 'js'), path.join(androidWebRoot, 'js'));
 console.log('Synced web UI (html + vendor + assets + js) into Android www/.');
