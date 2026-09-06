@@ -58,3 +58,5 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: transparen
   padding: 4px 12px; border-radius: 999px; background: rgba(10,13,18,0.85); color: #fff; border: 1px solid rgba(255,255,255,0.12);
   font-size: 11px; opacity: 0; transition: opacity .2s ease; pointer-events: none; white-space: nowrap; }
 #statusTip.show { opacity: 1; }
+#petAvatar.emo-swap { animation: pet-breathe 6.5s ease-in-out infinite, pet-bob 9s ease-in-out 1.2s infinite, emo-in .32s cubic-bezier(.3,1.4,.5,1) both; }
+@keyframes emo-in { from { opacity: .3; transform: scale(.97); } to { opacity: 1; transform: scale(1); } }

@@ -24,6 +24,7 @@ await copyFile(path.join(sourceRoot, 'vendor', 'tailwind.js'), path.join(android
 await copyDir(path.join(sourceRoot, 'vendor'), path.join(androidWebRoot, 'vendor'));
 await copyDir(path.join(sourceRoot, 'assets'), path.join(androidWebRoot, 'assets'));
 await copyDir(path.join(sourceRoot, 'js'), path.join(androidWebRoot, 'js'));
+await copyDir(path.join(sourceRoot, 'img'), path.join(androidWebRoot, 'img'));
 await copyFile(path.join(sourceRoot, 'pet.html'), path.join(androidWebRoot, 'pet.html'));
 await copyFile(path.join(sourceRoot, 'pet.css'), path.join(androidWebRoot, 'pet.css'));
 await copyFile(path.join(sourceRoot, 'pet.js'), path.join(androidWebRoot, 'pet.js'));

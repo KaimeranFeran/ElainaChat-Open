@@ -6,6 +6,35 @@
   var sendBtn = document.getElementById('petSend');
   var typeTimer = null;
 
+  /* ===== 伊蕾娜表情系统（回复情绪词 → 切换立绘） ===== */
+  var EMOTIONS = {
+    smirk: '坏笑', shy: '害羞', calm: '平静', surprised: '惊讶', resigned: '无奈',
+    speechless: '无语', angry: '生气', confused: '疑惑', happy: '高兴'
+  };
+  var avatar = document.getElementById('petAvatar');
+  var emoTimer = null;
+  function setEmotion(key) {
+    if (!avatar || !EMOTIONS[key]) return;
+    avatar.src = 'img/elaina/p_' + key + '.png';
+    avatar.classList.remove('emo-swap');
+    void avatar.offsetWidth;
+    avatar.classList.add('emo-swap');
+    if (emoTimer) clearTimeout(emoTimer);
+    emoTimer = setTimeout(function () { setEmotion('calm'); }, 4200);
+  }
+  function emotionFromText(text) {
+    var t = String(text || '');
+    if (/微笑|开心|高兴|嘿嘿|哈哈|愉快|开心|喜悦/ .test(t)) return 'happy';
+    if (/生气|哼|愤怒|恼火|气死/.test(t)) return 'angry';
+    if (/疑惑|奇怪|嗯？|？$/m.test(t) || /\?\s*$/.test(t)) return 'confused';
+    if (/害羞|脸红|唔|呜/.test(t)) return 'shy';
+    if (/惊讶|！|吃惊|诶|哎/.test(t)) return 'surprised';
+    if (/无奈|叹气|唉/.test(t)) return 'resigned';
+    if (/无语|真是的|服了/.test(t)) return 'speechless';
+    if (/坏笑|偷|狡黠|得意/.test(t)) return 'smirk';
+    return null;
+  }
+
   /* 桥：安卓 PetBridge / PC chrome.webview */
   function toNative(kind, payload) {
     try {
@@ -54,6 +83,8 @@
   window.PetOnReply = function (text) {
     var b = addBubble(String(text), 'bot');
     typewrite(b.msg, String(text));
+    var emo = emotionFromText(text);
+    if (emo) setEmotion(emo);
   };
 
   function showTip(msg) {
