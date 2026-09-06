@@ -114,6 +114,21 @@
   }
   strip.addEventListener('contextmenu', function (ev) { ev.preventDefault(); });
 
+  /* 返回主界面（仅 PC 桌面） */
+  try {
+    var backBtn = document.getElementById('petBackBtn');
+    var isPc = window.chrome && window.chrome.webview;
+    var isAndroid = window.PetBridge && typeof window.PetBridge.openApp === 'function';
+    if ((isPc || isAndroid) && backBtn) {
+      backBtn.style.display = '';
+      backBtn.addEventListener('click', function (ev) {
+        ev.stopPropagation();
+        try { if (isPc) window.chrome.webview.postMessage({ kind: 'pet-back' }); } catch (e) {}
+        try { if (isAndroid) window.PetBridge.openApp(); } catch (e) {}
+      });
+    }
+  } catch (e) {}
+
   /* PC C# 回调 */
   if (window.chrome && window.chrome.webview && window.chrome.webview.addEventListener) {
     window.chrome.webview.addEventListener('message', function (ev) {
