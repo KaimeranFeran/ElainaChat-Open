@@ -1,0 +1,130 @@
+using System;
+using System.IO;
+using System.Net.Http;
+using System.Text;
+using System.Text.Json;
+using System.Threading;
+using System.Threading.Tasks;
+using Microsoft.Web.WebView2.Wpf;
+
+namespace ElainaPet;
+
+/// <summary>
+/// 桌宠大脑：网关 LLM 调用 + 主动回复定时器（读前台窗口文本） + 设置持久化。
+/// </summary>
+public class PetBrain
+{
+    private static readonly string SettingsDir =
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ElainaPet");
+    private static readonly string SettingsFile = Path.Combine(SettingsDir, "settings.json");
+
+    private const string SystemPrompt =
+        "你是伊蕾娜（Elaina），一位微傲娇的天才魔女，喜欢旅行与读书。说话温柔但带一点小傲娇，用中文回复，简洁自然，偶尔有（动作/神态）描述。";
+
+    private readonly WebView2 _web;
+    private readonly HttpClient _http = new();
+    private string _base = "";
+    private string _key = "";
+    private bool _auto;
+    private int _interval = 15;
+    private Timer? _timer;
+    private long _lastProactiveAt;
+
+    public PetBrain(WebView2 web) { _web = web; }
+
+    public static ElainaSettings LoadSettings()
+    {
+        try
+        {
+            if (File.Exists(SettingsFile))
+                return JsonSerializer.Deserialize<ElainaSettings>(File.ReadAllText(SettingsFile)) ?? new ElainaSettings();
+        }
+        catch { }
+        return new ElainaSettings();
+    }
+
+    public static void SaveSettings(ElainaSettings s)
+    {
+        try
+        {
+            Directory.CreateDirectory(SettingsDir);
+            File.WriteAllText(SettingsFile, JsonSerializer.Serialize(s, new JsonSerializerOptions { WriteIndented = true }));
+        }
+        catch { }
+    }
+
+    public void Configure(string baseUrl, string apiKey)
+    {
+        _base = (baseUrl ?? "").Trim().TrimEnd('/');
+        _key = (apiKey ?? "").Trim();
+    }
+
+    /// <summary>主动回复：重启定时器（默认关闭；开启后每 5~60 分钟读前台窗口并主动聊天）。</summary>
+    public void RestartProactive(bool auto, int intervalMinutes)
+    {
+        _auto = auto;
+        _interval = Math.Clamp(intervalMinutes, 5, 60);
+        _timer?.Dispose();
+        _timer = null;
+        if (!_auto) return;
+        _timer = new Timer(_ => ProactiveTick(), null, _interval * 60000, _interval * 60000);
+    }
+
+    private void ProactiveTick()
+    {
+        try
+        {
+            string text = UiTextReader.ReadForeground();
+            if (string.IsNullOrWhiteSpace(text) || text.Length < 20) return;
+            if (Environment.TickCount64 - _lastProactiveAt < _interval * 60000L * 0.8) return;
+            _lastProactiveAt = Environment.TickCount64;
+            string ctx = text.Length > 900 ? text.Substring(0, 900) : text;
+            _ = ChatAsync("（主动搭话）用户现在正处在这个场景：" + ctx
+                + "。自然地跟用户闲聊一句，不要复述界面内容，控制在80字以内，语气照常（可带动作描述）。");
+        }
+        catch { }
+    }
+
+    public async Task ChatAsync(string userText)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(_base)) { PostToWeb("系统未配置网关地址，请右键打开设置填写"); return; }
+            var payload = new
+            {
+                model = "mini-max-m3",
+                messages = new object[]
+                {
+                    new { role = "system", content = SystemPrompt },
+                    new { role = "user", content = userText }
+                }
+            };
+            var req = new HttpRequestMessage(HttpMethod.Post, _base + "/api/chat/completions");
+            if (!string.IsNullOrWhiteSpace(_key)) req.Headers.TryAddWithoutValidation("Authorization", "Bearer " + _key);
+            req.Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
+            using var res = await _http.SendAsync(req);
+            string raw = await res.Content.ReadAsStringAsync();
+            if (!res.IsSuccessStatusCode) { PostToWeb("网关返回 [" + (int)res.StatusCode + "]，请检查 Key/地址"); return; }
+            using var doc = JsonDocument.Parse(raw);
+            string? reply = doc.RootElement.GetProperty("choices")[0].GetProperty("message").GetProperty("content").GetString();
+            PostToWeb(string.IsNullOrWhiteSpace(reply) ? "（伊蕾娜没有说话）" : reply.Trim());
+        }
+        catch (Exception ex)
+        {
+            PostToWeb("连接失败：" + (ex.Message ?? "网络错误"));
+        }
+    }
+
+    private void PostToWeb(string text)
+    {
+        string q = JsonSerializer.Serialize(text);
+        try
+        {
+            _web.Dispatcher.BeginInvoke(new Action(() =>
+            {
+                _web.CoreWebView2?.ExecuteScriptAsync("window.PetOnReply && window.PetOnReply(" + q + ")");
+            }));
+        }
+        catch { }
+    }
+}

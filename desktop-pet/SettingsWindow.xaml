@@ -1,0 +1,64 @@
+<Window x:Class="ElainaPet.SettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="ElainaPet 设置"
+        Width="440" Height="400"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="NoResize">
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- 服务地址 -->
+        <Grid Grid.Row="0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <TextBlock Text="服务地址" VerticalAlignment="Center" Margin="0,0,8,0"/>
+            <TextBox x:Name="ServerBaseBox" Grid.Column="1" Padding="4"/>
+        </Grid>
+
+        <!-- API Key -->
+        <Grid Grid.Row="1" Margin="0,8,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <TextBlock Text="API Key" VerticalAlignment="Center" Margin="0,0,8,0"/>
+            <TextBox x:Name="ApiKeyBox" Grid.Column="1" Padding="4"/>
+        </Grid>
+
+        <!-- 主动回复开关 -->
+        <CheckBox x:Name="AutoReplyBox" Grid.Row="2" Content="启用主动回复" Margin="0,14,0,0"/>
+
+        <!-- 主动回复间隔（分钟） -->
+        <StackPanel Grid.Row="3" Margin="0,14,0,0">
+            <TextBlock Text="主动回复间隔（分钟）"/>
+            <Slider x:Name="IntervalSlider" Minimum="5" Maximum="60" Value="15"
+                    TickFrequency="5" IsSnapToTickEnabled="True"
+                    ValueChanged="IntervalSlider_ValueChanged" Margin="0,6,0,0"/>
+            <TextBlock x:Name="IntervalLabel" Text="15 分钟" HorizontalAlignment="Right"
+                       Foreground="#888" FontSize="12"/>
+        </StackPanel>
+
+        <!-- 状态提示 -->
+        <TextBlock x:Name="StatusText" Grid.Row="4" Margin="0,14,0,0"
+                   TextWrapping="Wrap" Foreground="#888"/>
+
+        <!-- 按钮 -->
+        <StackPanel Grid.Row="6" Orientation="Horizontal" HorizontalAlignment="Right"
+                    Margin="0,14,0,0">
+            <Button Content="测试连接" Click="TestConnection_Click" Padding="12,4" Margin="0,0,8,0"/>
+            <Button Content="保存" Click="Save_Click" Padding="12,4" Margin="0,0,8,0" IsDefault="True"/>
+            <Button Content="取消" IsCancel="True" Padding="12,4"/>
+        </StackPanel>
+    </Grid>
+</Window>

@@ -3,11 +3,16 @@
 <head>
     <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content">
-    <title>ElainaChat Open · 伊蕾娜</title>
+    <title>ElainaChat · 伊蕾娜</title>
+    <link rel="stylesheet" href="/vendor/katex/katex.min.css">
+    <script src="/vendor/marked/marked.min.js"></script>
+    <script src="/vendor/katex/katex.min.js"></script>
     <script src="/vendor/tailwind.js"></script>
     <script src="/vendor/qrcode.js"></script>
     <script src="/vendor/jsQR.js"></script>
     <link rel="stylesheet" href="/assets/app.css">
+    <link rel="stylesheet" href="/assets/theme-liquid.css">
+    <script>try{if(localStorage.getItem("elaina_theme")==="dark")document.documentElement.setAttribute("data-theme","dark");var t=localStorage.getItem("elaina_theme_template");if(t&&t!=="ios")document.documentElement.setAttribute("data-theme-template",t);}catch(e){}</script>
 </head>
 <body>
     <script>
@@ -62,8 +67,8 @@
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 00-2.456 2.456zM16.894 20.567L16.5 21.75l-.394-1.183a2.25 2.25 0 00-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 001.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 001.423 1.423l1.183.394-1.183.394a2.25 2.25 0 00-1.423 1.423z"/></svg>
                 </div>
                 <div class="flex-1 min-w-0">
-                    <div class="text-sm font-bold text-indigo-950 leading-tight">ElainaChat Open</div>
-                    <div class="text-[11px] text-indigo-400">开源 BYOK 版 · 灰之魔女</div>
+                    <div class="text-sm font-bold text-indigo-950 leading-tight">ElainaChat</div>
+                    <div class="text-[11px] text-indigo-400">魔女之旅 · 灰之魔女</div>
                 </div>
                 <button id="mobileSidebarClose" type="button" title="收起侧边栏" aria-label="收起侧边栏">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" d="M6 6l12 12M18 6L6 18"/></svg>
@@ -299,7 +304,7 @@
                 <div class="diary-toolbar flex-shrink-0">
                     <span id="diaryCount" class="diary-count"></span>
                 </div>
-                <div class="flex-1 min-h-0 overflow-y-auto scroll-soft">
+                <div class="diary-scroll scroll-soft">
                     <div id="diaryEmpty" class="diary-empty hidden">
                         <div class="text-4xl mb-3">📖</div>
                         <p class="text-sm">还没有整理出的日记，先和伊蕾娜聊一段旅途吧。</p>
@@ -380,7 +385,7 @@
     </div>
 
     <input id="composerImageInput" type="file" accept="image/*" class="hidden" aria-hidden="true">
-    <input id="memoryFileInput" type="file" accept="application/json,text/plain,application/octet-stream" class="hidden" aria-hidden="true">
+    <input id="memoryFileInput" type="file" accept="*/*" class="hidden" aria-hidden="true">
 
     <!-- 悬浮麦克风dock -->
     <div id="floatingMic" class="hidden fixed left-1/2 -translate-x-1/2 bottom-24 z-40">
@@ -470,7 +475,7 @@
                             <label class="text-xs text-indigo-500 mb-1 block">其他说明</label>
                             <textarea id="uiExtra" rows="3" class="modal-textarea text-sm resize-y" placeholder="称呼习惯、禁忌话题、想被记住的小事等"></textarea>
                         </div>
-                        <p class="text-[10px] text-indigo-300 leading-relaxed">设定「用户是谁」，对话中会按这些信息称呼与对待你。每个对话可在「当前会话角色卡」里单独覆盖。</p>
+                        <p class="text-[10px] text-indigo-300 leading-relaxed">设定「用户是谁」，对话中伊蕾娜会按这些信息称呼与对待你。每个对话可在「当前会话角色卡」里单独覆盖。</p>
                     </div>
                     <div class="flex gap-2">
                         <button id="previewPromptBtn" class="btn-secondary text-xs">查看完整 Prompt</button>
@@ -488,128 +493,41 @@
                 </section>
 
                 <section>
-                    <div class="modal-label flex items-center gap-2"><span class="text-violet-500">✦</span> 对话模型（多 API 格式）</div>
+                    <div class="modal-label flex items-center gap-2"><span class="text-violet-500">✦</span> 云端连接</div>
                     <div class="space-y-3">
                         <div>
-                            <label class="text-xs text-indigo-500 mb-1 block">API 格式</label>
-                            <select id="settingApiFormat" class="modal-input text-sm">
-                                <option value="openai">OpenAI 兼容（DeepSeek / 硅基流动 / OneAPI 等）</option>
-                                <option value="anthropic">Anthropic Claude</option>
-                                <option value="gemini">Google Gemini</option>
-                                <option value="ollama">Ollama 本地</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label class="text-xs text-indigo-500 mb-1 block">请求模式</label>
-                            <select id="settingProviderMode" class="modal-input text-sm">
-                                <option value="direct">使用官方默认地址</option>
-                                <option value="custom-proxy">自定义 Base URL</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label class="text-xs text-indigo-500 mb-1 block">API Base URL</label>
-                            <input id="settingBaseUrl" autocomplete="off" type="url" inputmode="url" class="modal-input text-sm" placeholder="https://api.deepseek.com/v1">
-                        </div>
-                        <div>
-                            <label class="text-xs text-indigo-500 mb-1 block">模型名</label>
-                            <input id="settingChatModel" autocomplete="off" type="text" class="modal-input text-sm" placeholder="deepseek-chat">
-                        </div>
-                        <div>
-                            <label class="text-xs text-indigo-500 mb-1 block">API Key（Ollama 本地可留空）</label>
-                            <input id="settingApiKey" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false" type="password" class="modal-input text-sm" placeholder="sk-...（只保存在本机）">
+                            <label class="text-xs text-indigo-500 mb-1 block">云端服务地址</label>
+                            <input id="settingBaseUrl" autocomplete="off" type="url" inputmode="url" class="modal-input text-sm" placeholder="http://47.114.73.172">
                         </div>
                     </div>
-                    <div class="flex flex-wrap gap-2 mt-3">
-                        <button id="testChatConnectionBtn" type="button" class="btn-secondary text-xs">测试对话连接</button>
-                        <button id="clearApiKeysBtn" type="button" class="btn-secondary text-xs">清除全部 API Key</button>
+                    <div class="space-y-3">
+                        <div>
+                            <label class="text-xs text-indigo-500 mb-1 block">ElainaChat 使用 Key</label>
+                            <input id="settingApiKey" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" type="text" inputmode="text" class="modal-input text-sm" placeholder="由服务提供者发放的唯一 Key">
+                        </div>
                     </div>
-                    <p id="providerModeHint" class="text-[11px] text-indigo-300 leading-relaxed mt-2">请求从当前设备直接发给所选服务商，不经过作者服务器。Android Key 使用系统 Keystore 加密；Web Key 仅保存在当前标签页会话。</p>
+                    <p class="text-[11px] text-indigo-300 leading-relaxed mt-2">客户端只保存这一个使用 Key；对话固定使用 MiniMax-M3，语音使用 MiniMax，语音识别使用阿里百炼。真实服务 Key 均由云端保管，思考模式默认关闭。</p>
                 </section>
 
                 <section>
-                    <div class="modal-label flex items-center gap-2"><span class="text-rose-500">✦</span> 语音输出（多服务商）</div>
+                    <div class="modal-label flex items-center gap-2"><span class="text-rose-500">✦</span> 语音输出（MiniMax 克隆音色）</div>
                     <div class="space-y-3">
-                        <div>
-                            <label class="text-xs text-indigo-500 mb-1 block">语音服务商</label>
-                            <select id="settingTtsProvider" class="modal-input text-sm">
-                                <option value="minimax">MiniMax（克隆音色）</option>
-                                <option value="doubao">豆包 / 火山引擎</option>
-                                <option value="dashscope">阿里千问 Qwen-TTS</option>
-                            </select>
-                        </div>
-                        <div id="minimaxTtsFields" class="space-y-3">
+                        <input id="settingMinimaxApiKey" type="hidden" value="">
+                        <div class="grid grid-cols-2 gap-3">
                             <div>
-                                <label class="text-xs text-indigo-500 mb-1 block">MiniMax API Key</label>
-                                <input id="settingMinimaxApiKey" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false" type="password" class="modal-input text-sm" placeholder="留空则不生成语音">
+                                <label class="text-xs text-indigo-500 mb-1 block">模型</label>
+                                <select id="settingMinimaxModel" class="modal-input text-sm">
+                                    <option value="speech-2.8-turbo">speech-2.8-turbo</option>
+                                    <option value="speech-2.8-hd">speech-2.8-hd</option>
+                                    <option value="speech-2.5-hd">speech-2.5-hd</option>
+                                    <option value="speech-02-hd">speech-02-hd</option>
+                                    <option value="speech-01-turbo">speech-01-turbo</option>
+                                </select>
                             </div>
-                            <div class="grid grid-cols-2 gap-3">
-                                <div>
-                                    <label class="text-xs text-indigo-500 mb-1 block">模型</label>
-                                    <select id="settingMinimaxModel" class="modal-input text-sm">
-                                        <option value="speech-2.8-turbo">speech-2.8-turbo</option>
-                                        <option value="speech-2.8-hd">speech-2.8-hd</option>
-                                        <option value="speech-2.5-hd">speech-2.5-hd</option>
-                                        <option value="speech-02-hd">speech-02-hd</option>
-                                        <option value="speech-01-turbo">speech-01-turbo</option>
-                                    </select>
-                                </div>
-                                <div>
-                                    <label class="text-xs text-indigo-500 mb-1 block">克隆音色 ID</label>
-                                    <input id="settingMinimaxVoice" autocomplete="off" type="text" class="modal-input text-sm" value="" placeholder="请填写自己账号的音色 ID">
-                                </div>
+                            <div>
+                                <label class="text-xs text-indigo-500 mb-1 block">克隆音色 ID</label>
+                                <input id="settingMinimaxVoice" autocomplete="off" type="text" class="modal-input text-sm" value="Elaina0032T20260715183232" readonly aria-readonly="true" title="此版本固定使用伊蕾娜克隆音色">
                             </div>
-                        </div>
-                        <div id="doubaoTtsFields" class="space-y-3 hidden">
-                            <div class="grid grid-cols-2 gap-3">
-                                <div>
-                                    <label class="text-xs text-indigo-500 mb-1 block">API Key（新控制台，推荐）</label>
-                                    <input id="settingDoubaoApiKey" autocomplete="new-password" type="password" class="modal-input text-sm" placeholder="X-Api-Key">
-                                </div>
-                                <div>
-                                    <label class="text-xs text-indigo-500 mb-1 block">Resource ID</label>
-                                    <select id="settingDoubaoResourceId" class="modal-input text-sm">
-                                        <option value="seed-tts-2.0">seed-tts-2.0</option>
-                                        <option value="seed-tts-1.0">seed-tts-1.0</option>
-                                    </select>
-                                </div>
-                            </div>
-                            <div class="grid grid-cols-2 gap-3">
-                                <div>
-                                    <label class="text-xs text-indigo-500 mb-1 block">App ID（旧控制台）</label>
-                                    <input id="settingDoubaoAppId" autocomplete="off" type="text" class="modal-input text-sm" placeholder="可选">
-                                </div>
-                                <div>
-                                    <label class="text-xs text-indigo-500 mb-1 block">Access Token（旧控制台）</label>
-                                    <input id="settingDoubaoToken" autocomplete="new-password" type="password" class="modal-input text-sm" placeholder="可选">
-                                </div>
-                            </div>
-                            <div class="grid grid-cols-2 gap-3">
-                                <div>
-                                    <label class="text-xs text-indigo-500 mb-1 block">Cluster（旧控制台）</label>
-                                    <input id="settingDoubaoCluster" autocomplete="off" type="text" class="modal-input text-sm" placeholder="volcano_tts">
-                                </div>
-                                <div>
-                                    <label class="text-xs text-indigo-500 mb-1 block">音色 ID</label>
-                                    <input id="settingDoubaoVoice" autocomplete="off" type="text" class="modal-input text-sm" placeholder="如 zh_female_shuangkuaisisi_uranus_bigtts">
-                                </div>
-                            </div>
-                            <p class="text-[11px] text-indigo-300 leading-relaxed">填写新控制台 API Key 时使用 V3 大模型接口；只填写旧控制台 App ID 与 Access Token 时使用 V1 小模型接口。1.0 与 2.0 音色不能混用。</p>
-                        </div>
-                        <div id="dashscopeTtsFields" class="space-y-3 hidden">
-                            <div class="grid grid-cols-2 gap-3">
-                                <div>
-                                    <label class="text-xs text-indigo-500 mb-1 block">模型</label>
-                                    <input id="settingDashscopeTtsModel" autocomplete="off" type="text" class="modal-input text-sm" placeholder="qwen3-tts-flash">
-                                </div>
-                                <div>
-                                    <label class="text-xs text-indigo-500 mb-1 block">音色</label>
-                                    <input id="settingDashscopeTtsVoice" autocomplete="off" type="text" class="modal-input text-sm" placeholder="Cherry / Ethan / Serena">
-                                </div>
-                            </div>
-                        </div>
-                        <div>
-                            <label class="text-xs text-indigo-500 mb-1 block">DashScope API Key（千问 TTS / 阿里百炼语音识别共用）</label>
-                            <input id="settingDashscopeApiKey" autocomplete="new-password" type="password" class="modal-input text-sm" placeholder="sk-...">
                         </div>
                         <div>
                             <label class="text-xs text-indigo-500 mb-1 block">语音语言（朗读文本的语言）</label>
@@ -648,25 +566,22 @@
                             </div>
                             <input id="settingTtsVolume" type="range" min="0" max="2" step="0.05" value="1.5" class="custom-slider">
                         </div>
-                        <div class="flex flex-wrap gap-2">
-                            <button id="testTtsConnectionBtn" type="button" class="btn-secondary text-xs">测试语音连接</button>
-                        </div>
-                        <p class="text-[11px] text-indigo-300 leading-relaxed">开源版不内置任何音色 ID，也不会把请求发给作者。MiniMax 需填写自己的音色 ID；豆包和千问可使用系统音色。</p>
                     </div>
                 </section>
 
                 <section>
                     <div class="modal-label flex items-center gap-2"><span class="text-indigo-500">✦</span> 语音输入</div>
-                    <div class="flex flex-wrap gap-4 mb-3">
+                    <div class="flex gap-4 mb-3">
                         <label class="flex items-center gap-1.5 text-xs text-indigo-700 cursor-pointer">
-                            <input type="radio" name="asrProvider" value="browser" class="accent-pink-500"> 浏览器内置识别
+                            <input type="radio" name="asrProvider" value="aliyun" class="accent-pink-500"> 阿里百炼最终识别（安卓优先）
                         </label>
-                        <label class="flex items-center gap-1.5 text-xs text-indigo-700 cursor-pointer">
-                            <input type="radio" name="asrProvider" value="aliyun" class="accent-pink-500"> 自备阿里百炼 Key
+                        <label class="flex items-center gap-1.5 text-xs text-indigo-300 cursor-not-allowed">
+                            <input type="radio" name="asrProvider" value="browser" class="accent-pink-500" disabled> 浏览器识别（安卓不可用）
                         </label>
                     </div>
                     <div id="dashscopeAsrFields" class="space-y-3">
-                        <p class="text-[11px] text-indigo-300 leading-relaxed">Android 没有系统级浏览器识别时，可用自己的 DashScope Key 直连 qwen3-asr-flash；留空不会调用阿里服务。</p>
+                        <input id="settingDashscopeApiKey" type="hidden" value="">
+                        <p class="text-[11px] text-indigo-300 leading-relaxed">结束录音后由云端调用阿里百炼进行最终识别校准，不需要单独填写阿里 Key。</p>
                     </div>
                 </section>
 
@@ -748,18 +663,18 @@
     </div>
 
     <!-- ==================== 自定义Modal ==================== -->
-    <!-- 开源 BYOK 首次使用引导 -->
+    <!-- 每次启动公告 / 首次安装 Key 引导 -->
     <div id="announcementOverlay" class="fixed inset-0 hidden items-center justify-center p-4 modal-overlay">
         <div class="modal-panel guide-modal-panel animate-modal-pop">
             <div class="guide-modal-scroll scroll-soft">
-                <div class="guide-eyebrow">ELAINACHAT OPEN · BYOK</div>
-                <h2 id="announcementTitle" class="guide-title font-bold">欢迎使用独立开源版</h2>
-                <div id="announcementContent" class="guide-copy">本版本不连接作者服务器。对话与语音费用由你填写的服务商账号直接承担。</div>
+                <div class="guide-eyebrow">ELAINACHAT · 旅途公告</div>
+                <h2 id="announcementTitle" class="guide-title font-bold">欢迎来到伊蕾娜的旅途</h2>
+                <div id="announcementContent" class="guide-copy">愿今天的对话，也能成为值得记住的一页。</div>
                 <div id="announcementKeySection" class="guide-field hidden">
-                    <label for="announcementKeyInput">首次使用，请填写 DeepSeek API Key</label>
-                    <input id="announcementKeyInput" autocomplete="new-password" type="password" class="modal-input text-sm w-full" placeholder="sk-...">
-                    <p class="guide-field-hint">Android 使用系统 Keystore 加密；Web 仅保存在当前标签页，关闭标签页后自动清除。MiniMax Key 与音色 ID 可稍后在设置中填写。</p>
-                    <p id="announcementKeyError" class="guide-error hidden">请输入 DeepSeek API Key 后再进入应用。</p>
+                    <label for="announcementKeyInput">首次使用，请填写 ElainaChat 使用 Key</label>
+                    <input id="announcementKeyInput" autocomplete="off" type="text" class="modal-input text-sm w-full" placeholder="粘贴你的使用 Key">
+                    <p class="guide-field-hint">Key 只保存在当前设备，用于连接聊天、语音与识别服务。</p>
+                    <p id="announcementKeyError" class="guide-error hidden">请输入使用 Key 后再进入应用。</p>
                 </div>
             </div>
             <div class="px-6 py-4 border-t border-white/60 flex justify-end">
@@ -854,6 +769,7 @@
 <script src="/js/app-01-core.js"></script>
 <script src="/js/app-02-message.js"></script>
 <script src="/js/app-03-chat.js"></script>
+    <script src="/js/theme-menu.js" defer></script>
 
 </body>
 </html>

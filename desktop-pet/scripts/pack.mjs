@@ -1,0 +1,15 @@
+import { cpSync, rmSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const src = 'C:/Users/28910/Documents/ChatGPT/elnchat/ElainaChat-Open/web';
+const dst = path.join(root, 'web-pack');
+rmSync(dst, { recursive: true, force: true });
+cpSync(src, dst, { recursive: true, filter: (p) => !p.includes('serve.mjs') });
+const idx = path.join(dst, 'index.html');
+let c = readFileSync(idx, 'utf8');
+c = c.split('src="/').join('src="');
+c = c.split('href="/').join('href="');
+c = c.split('<head>').join('<head>\n<script>window.__PC_DESKTOP=true;window.__PC_DEFAULT_GW="http://47.114.73.172";window.__PC_PROXY_BASE="http://127.0.0.1:3500";</script>');
+writeFileSync(idx, c, 'utf8');
+console.log('packed ->', dst, '| config.json:', existsSync(path.join(dst, 'config.json')));

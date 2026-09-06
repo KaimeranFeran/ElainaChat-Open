@@ -1,0 +1,40 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    ElainaPet 桌宠（WPF + WebView2）最小可编译骨架。
+    本机发布单文件命令见 README.md。
+  -->
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <PlatformTarget>x64</PlatformTarget>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>ElainaPet</RootNamespace>
+    <AssemblyName>ElainaPet</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- WebView2：当前最新稳定版 -->
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4191.47" />
+  </ItemGroup>
+
+  <!--
+    UIAutomation（System.Windows.Automation：UIAutomationClient / UIAutomationTypes）
+    由 Microsoft.WindowsDesktop.App 框架引用自动提供，无需显式 Reference，避免重复引用告警。
+    UiTextReader.cs 直接 using System.Windows.Automation 即可。
+  -->
+
+  <ItemGroup>
+    <!-- 把 www 下的前端资源拷贝到输出目录，便于 file:// 加载 -->
+    <None Update="web-pack\**\*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="www\**\*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+</Project>

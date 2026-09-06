@@ -4,4 +4,5 @@
     <string name="title_activity_main">ElainaChat Open</string>
     <string name="package_name">com.elainachat.opensource</string>
     <string name="custom_url_scheme">com.elainachat.opensource</string>
+    <string name="elaina_pet_accessibility_desc">用于读取当前界面文字，让桌宠感知并主动与你聊天（内容仅本地处理，不会上传界面私有信息）。</string>
 </resources>
