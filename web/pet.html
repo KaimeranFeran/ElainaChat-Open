@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Elaina Pet</title>
+<link rel="stylesheet" href="pet.css">
+</head>
+<body>
+<div id="stage">
+  <div id="dragStrip" title="拖我"></div>
+  <div id="bubbleScroller">
+    <div class="bubble bot hidden" id="helloBubble">你好呀，我是伊蕾娜～</div>
+  </div>
+  <div id="live2dWrap">
+    <canvas id="petCanvas"></canvas>
+  </div>
+  <div id="inputRow">
+    <input id="petInput" type="text" placeholder="和伊蕾娜说点什么…" autocomplete="off">
+    <button id="petSend" type="button">➤</button>
+  </div>
+</div>
+<script src="vendor/live2d/live2dcubismcore.min.js"></script>
+<script src="vendor/live2d/pixi.min.js"></script>
+<script src="vendor/live2d/live2d-display.cubism4.min.js"></script>
+<script src="pet.js"></script>
+</body>
+</html>
