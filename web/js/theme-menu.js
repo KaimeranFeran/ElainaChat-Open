@@ -240,9 +240,13 @@
       } catch (e) {}
     }));
     function notifyPet() {
+      const on = PK('enabled', '0') === '1';
       try {
         const bus = window.__elainaPetBus;
-        if (bus) bus.setEnabled(PK('enabled', '0') === '1');
+        if (bus) bus.setEnabled(on);
+      } catch (e) {}
+      try {
+        if (window.chrome && window.chrome.webview) window.chrome.webview.postMessage({ kind: 'pet-enabled', payload: on });
       } catch (e) {}
     }
     syncRows();
