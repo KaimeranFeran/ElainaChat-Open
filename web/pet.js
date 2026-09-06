@@ -119,7 +119,7 @@
     var backBtn = document.getElementById('petBackBtn');
     var isPc = window.chrome && window.chrome.webview;
     var isAndroid = window.PetBridge && typeof window.PetBridge.openApp === 'function';
-    if ((isPc || isAndroid) && backBtn) {
+    if (backBtn) {
       backBtn.style.display = '';
       backBtn.addEventListener('click', function (ev) {
         ev.stopPropagation();
