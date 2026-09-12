@@ -1,4 +1,6 @@
+using System.IO;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Windows;
 
 namespace ElainaPet;
@@ -13,6 +15,10 @@ public partial class App : Application
 
     private Mutex? _mutex;
 
+    /// <summary>错误日志（%AppData%\ElainaPet\error.log）</summary>
+    public static readonly string LogPath = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ElainaPet", "error.log");
+
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
@@ -26,6 +32,23 @@ public partial class App : Application
             Shutdown();
             return;
         }
+
+        /* 全局异常兜底：避免 async void / UI 线程异常直接崩进程且无提示 */
+        DispatcherUnhandledException += (_, args) =>
+        {
+            try { File.AppendAllText(LogPath, DateTime.Now + " [UI] " + args.Exception + Environment.NewLine); } catch { }
+            MessageBox.Show("发生错误：" + args.Exception.Message + "\n\n日志：" + LogPath, "ElainaChat", MessageBoxButton.OK, MessageBoxImage.Warning);
+            args.Handled = true;
+        };
+        AppDomain.CurrentDomain.UnhandledException += (_, args) =>
+        {
+            try { File.AppendAllText(LogPath, DateTime.Now + " [Domain] " + args.ExceptionObject + Environment.NewLine); } catch { }
+        };
+        TaskScheduler.UnobservedTaskException += (_, args) =>
+        {
+            try { File.AppendAllText(LogPath, DateTime.Now + " [Task] " + args.Exception + Environment.NewLine); } catch { }
+            args.SetObserved();
+        };
 
         // 手动创建主窗口（不用 StartupUri，便于单实例控制）。
         var main = new MainWindow();

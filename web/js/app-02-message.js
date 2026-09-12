@@ -114,7 +114,7 @@
         /* ---- Markdown + LaTeX 渲染（消息正文） ---- */
         function renderMessageText(text) {
             /* 剥离 AI 场景标记（<scene>xxx</scene>），仅内部使用，不展示给用户 */
-            const raw = String(text || '').replace(/<scene>[\s\S]*?<\/scene>/gi, '').replace(/<\/?scene>/gi, '').trim();
+            const raw = String(text || '').replace(/^[ \t]*<scene>[^<\n]{0,64}<\/scene>[ \t]*$/gim, '').trim();
             const hasMd = /(^|\n)\s*(#{1,6}\s|[-*+]\s|>\s|\u0060\u0060\u0060|---|\d+\.\s)|(\*\*[^*]+\*\*|\u0060[^\u0060]+\u0060|\[[^\]]+\]\([^)]+\))|(\$\$|(?:^|[^\\])\$[^$\n]{1,200}\$)/.test(raw);
             const mdObj = window.marked;
             const mdParse = (typeof mdObj === 'function') ? mdObj : (mdObj && typeof mdObj.parse === 'function') ? mdObj.parse.bind(mdObj) : null;

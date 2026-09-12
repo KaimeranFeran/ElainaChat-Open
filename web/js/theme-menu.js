@@ -4,11 +4,22 @@
    showMemoryExportDialog/runManualMemorySummary），不改变任何业务逻辑。 */
 (() => {
   'use strict';
+
+  /* 顶层共享（多处 safe() 块共用，避免跨域作用域 ReferenceError —— OCR S1/S2） */
+  const GV = (k, d) => { try { const v = localStorage.getItem('elaina_galgame_' + k); return v === null ? d : v; } catch (e) { return d; } };
+  const GS = (k, v) => { try { localStorage.setItem('elaina_galgame_' + k, v); } catch (e) {} };
+  const safeTip = (msg) => {
+    try {
+      if (typeof window.PetShowTip === 'function') { window.PetShowTip(msg); return; }
+      console.log('[elaina]', msg);
+    } catch (e) {}
+  };
+
   /* 未配置网关时自动 seed 默认地址（正式版：PC/安卓通用；开源版注入为空则不填） */
   (function seedGateway() {
     try {
-      var st = JSON.parse(localStorage.getItem('elaina_settings') || '{}');
-      var gw = window.__PC_DEFAULT_GW || '';
+      let st = JSON.parse(localStorage.getItem('elaina_settings') || '{}');
+      let gw = window.__PC_DEFAULT_GW || '';
       function write(v) {
         if (!v || st.baseUrl) return;
         st.baseUrl = v;
@@ -29,7 +40,7 @@
     if (window.__PC_DESKTOP && window.chrome && window.chrome.webview) {
       setTimeout(function () {
         try {
-          var o = JSON.parse(localStorage.getItem('elaina_settings') || '{}');
+          let o = JSON.parse(localStorage.getItem('elaina_settings') || '{}');
           window.chrome.webview.postMessage({ kind: 'gateway', payload: o.baseUrl || '' });
         } catch (e) {}
       }, 1500);
@@ -250,7 +261,7 @@
       const lb = document.getElementById('swPetIntervalLabel');
       if (lb) lb.textContent = iv + ' 分钟';
       syncScale();
-      renderSceneThumbs();
+      /* 缩略图由 galgame.js 自管理 */
       const sg = document.getElementById('swGgAiBg');
       if (sg) sg.classList.toggle('on', GV('aiBg', '1') === '1');
       const fx0 = GV('fx', 'auto');
@@ -287,15 +298,15 @@
     sec.querySelectorAll('.sw-perm-btn').forEach(b => b.addEventListener('click', () => {
       try {
         const cap = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.ElainaPet;
-        if (!cap) { showTip && showTip('仅安卓端生效（当前为网页/PC 环境）'); return; }
+        if (!cap) { safeTip('仅安卓端生效（当前为网页/PC 环境）'); return; }
         const perm = b.getAttribute('data-perm');
         if (perm === 'acc') cap.openAccessibilitySettings();
         else if (perm === 'overlay') cap.openOverlaySettings();
         else if (perm === 'shizuku') {
           cap.requestShizuku().then(function (r) {
-            showTip && showTip(r && r.granted ? 'Shizuku 已授权，已自动开启无障碍并加入保活白名单' : '已请求 Shizuku 授权，请在弹窗中允许');
+            safeTip(r && r.granted ? 'Shizuku 已授权，已自动开启无障碍并加入保活白名单' : '已请求 Shizuku 授权，请在弹窗中允许');
           }).catch(function (e) {
-            showTip && showTip('Shizuku：' + ((e && e.message) || '未安装或未启动 Shizuku'));
+            safeTip('Shizuku：' + ((e && e.message) || '未安装或未启动 Shizuku'));
           });
         }
         else cap.openBatteryWhitelist();
@@ -316,7 +327,8 @@
             interval: Number(PK('interval', '15')) || 15,
             proactive: PK('proactive', '0') === '1',
             scale: Number(PK('scale', '1')) || 1,
-            clickthrough: PK('clickthrough', '0') === '1'
+            model: (function(){ try { return (state.settings && state.settings.model) || ''; } catch(e){ return ''; } })(),
+          clickthrough: PK('clickthrough', '0') === '1'
           });
         }
       } catch (e) {}
@@ -332,9 +344,6 @@
   safe(() => {
     const petSec = document.getElementById('petSettingSection');
     if (!petSec || document.getElementById('galgameSettingSection')) return;
-    const GK = 'elaina_galgame_';
-    const GV = (k, d) => { try { const v = localStorage.getItem(GK + k); return v === null ? d : v; } catch (e) { return d; } };
-    const GS = (k, v) => { try { localStorage.setItem(GK + k, v); } catch (e) {} };
     const sec = document.createElement('section');
     sec.id = 'galgameSettingSection';
     sec.innerHTML =
@@ -403,40 +412,6 @@
       sync();
       try { window.ElainaGalgame && window.ElainaGalgame.refresh(); } catch (e) {}
     }));
-    function renderSceneThumbs() {
-      const box = document.getElementById('swGgSceneList');
-      if (!box) return;
-      const list = (window.ElainaGalgame && window.ElainaGalgame.bgs) ? window.ElainaGalgame.bgs() : [];
-      if (!list.length) { setTimeout(renderSceneThumbs, 400); return; }   /* galgame.js 可能尚未加载，稍后重试 */
-      const cur = GV('scene', list.length ? list[0][0] : '');
-      if (!box.dataset.built) {
-        box.innerHTML = list.map((it) => {
-          const f = it[0], name = it[1];
-          return '<button type="button" class="sw-gg-thumb" data-scene="' + f + '" title="' + name + '" style="flex:0 0 auto;padding:0;border:0;background:transparent;cursor:pointer">' +
-            '<img src="img/bg/' + f + '.jpg" alt="' + name + '" style="width:92px;height:52px;object-fit:cover;border-radius:10px;display:block;border:2px solid transparent;transition:border-color .15s ease, transform .15s ease">' +
-            '<div style="font-size:11px;margin-top:3px;color:var(--lg-ink-soft);text-align:center;max-width:92px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + name + '</div></button>';
-        }).join('');
-        box.dataset.built = '1';
-        box.querySelectorAll('.sw-gg-thumb').forEach(btn => btn.addEventListener('click', () => {
-          GS('scene', btn.getAttribute('data-scene'));
-          try { window.ElainaGalgame && window.ElainaGalgame.refresh(); } catch (e) {}
-          renderSceneThumbs();
-        }));
-      }
-      box.querySelectorAll('.sw-gg-thumb').forEach(btn => {
-        const img = btn.querySelector('img');
-        const on = btn.getAttribute('data-scene') === cur;
-        img.style.borderColor = on ? 'var(--lg-primary)' : 'transparent';
-        img.style.transform = on ? 'translateY(-2px)' : 'none';
-      });
-    }
-    const aiBgSw = document.getElementById('swGgAiBg');
-    aiBgSw.addEventListener('click', (ev) => {
-      ev.stopPropagation();
-      GS('aiBg', GV('aiBg', '1') === '1' ? '0' : '1');
-      aiBgSw.classList.toggle('on', GV('aiBg', '1') === '1');
-      try { window.ElainaGalgame && window.ElainaGalgame.refresh(); } catch (e) {}
-    });
     document.getElementById('ggEnterBtn').addEventListener('click', () => {
       GS('enabled', '1');
       sync();

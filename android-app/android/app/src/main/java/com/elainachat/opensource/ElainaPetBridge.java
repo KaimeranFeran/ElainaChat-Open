@@ -27,14 +27,57 @@ public class ElainaPetBridge {
     private volatile String systemPrompt = "你是伊蕾娜（Elaina），一位微傲娇的天才魔女，喜欢旅行与读书。说话温柔但带一点小傲娇，用中文回复，简洁自然，偶尔有（动作/神态）描述。";
 
     private final Runnable onOpenApp;
-
-    public ElainaPetBridge(WebView webView) {
-        this(webView, null);
-    }
+    private final Runnable onStartDrag;
+    private final Runnable onEndDrag;
+    private final java.util.function.Consumer<Boolean> onInputFocus;
+    private volatile String model = "mini-max-m3";
 
     public ElainaPetBridge(WebView webView, Runnable onOpenApp) {
+        this(webView, onOpenApp, null, null, null);
+    }
+
+    public ElainaPetBridge(WebView webView, Runnable onOpenApp, Runnable onStartDrag, Runnable onEndDrag,
+                           java.util.function.Consumer<Boolean> onInputFocus) {
         this.webView = webView;
         this.onOpenApp = onOpenApp;
+        this.onStartDrag = onStartDrag;
+        this.onEndDrag = onEndDrag;
+        this.onInputFocus = onInputFocus;
+    }
+
+    /** 前端拖拽条：开始拖动悬浮窗 */
+    @JavascriptInterface
+    public void startDrag() {
+        if (onStartDrag != null) onStartDrag.run();
+    }
+
+    /** 前端拖拽条：结束拖动 */
+    @JavascriptInterface
+    public void endDrag() {
+        if (onEndDrag != null) onEndDrag.run();
+    }
+
+    /** 前端输入框获得/失去焦点：悬浮窗需要临时获取焦点才能弹出软键盘 */
+    @JavascriptInterface
+    public void setInputFocus(final boolean focused) {
+        if (onInputFocus != null) onInputFocus.accept(focused);
+    }
+
+    /** 主 App 设置的模型（与主界面 state.settings.model 保持一致） */
+    public void setModel(String m) {
+        if (m != null && !m.trim().isEmpty()) model = m.trim();
+    }
+
+    /** 供悬浮窗前端读取网关配置（语音输入等） */
+    @JavascriptInterface
+    public String getConfig() {
+        try {
+            org.json.JSONObject o = new org.json.JSONObject();
+            o.put("baseUrl", baseUrl);
+            o.put("apiKey", apiKey);
+            o.put("model", model);
+            return o.toString();
+        } catch (Exception e) { return "{}"; }
     }
 
     /** 返回主界面（安卓悬浮窗）：拉起 ElainaChat App */
@@ -44,7 +87,7 @@ public class ElainaPetBridge {
     }
 
     public void setConfig(String baseUrl, String apiKey, String systemPrompt) {
-        this.baseUrl = baseUrl == null ? "" : baseUrl.trim();
+        this.baseUrl = baseUrl == null ? "" : baseUrl.trim().replaceAll("/+$", "");   /* 与主前端一致：去掉尾部斜杠，避免 host//api 404 */
         this.apiKey = apiKey == null ? "" : apiKey.trim();
         if (systemPrompt != null && systemPrompt.trim().length() > 0) this.systemPrompt = systemPrompt.trim();
     }

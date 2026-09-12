@@ -726,7 +726,9 @@ ${DEFAULT_CHARACTER_PREFERENCES}
             if (background) lines.push('用户背景：' + background);
             if (extra) lines.push('其他说明：' + extra);
             lines.push('按以上设定称呼和对待用户；不要向用户复述这些设定，也不要提醒用户这是设定。');
-            return [{ role: 'system', content: lines.join('\n') }];
+            /* layeredHintInject：Galgame 场景指令同样注入 layered 结构（OCR S3） */
+        const layeredHint = (typeof window !== 'undefined' && window.__galgameSceneHint) ? ('\n\n' + window.__galgameSceneHint) : '';
+        return [{ role: 'system', content: lines.join('\n') + layeredHint }];
         }
 
         function openConversationPromptEditor() {

@@ -21,10 +21,15 @@ public class PetBrain
     private const string SystemPrompt =
         "你是伊蕾娜（Elaina），一位微傲娇的天才魔女，喜欢旅行与读书。说话温柔但带一点小傲娇，用中文回复，简洁自然，偶尔有（动作/神态）描述。";
 
+    /** 默认网关（与前端 config.json / pack.mjs 注入保持一致） */
+    public const string DefaultGateway = "https://elainachat.j3.ink";
+
     private readonly WebView2 _web;
-    private readonly HttpClient _http = new();
+    /* 静态复用：避免每次新建都不释放导致端口耗尽 */
+    private static readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(130) };
     private string _base = "";
     private string _key = "";
+    private string _model = "mini-max-m3";
     private bool _auto;
     private int _interval = 15;
     private Timer? _timer;
@@ -53,10 +58,17 @@ public class PetBrain
         catch { }
     }
 
-    public void Configure(string baseUrl, string apiKey)
+    public void ConfigureFromSettings()
+    {
+        var s = LoadSettings();
+        Configure(s.ServerBase, s.ApiKey);
+    }
+
+    public void Configure(string baseUrl, string apiKey, string? model = null)
     {
         _base = (baseUrl ?? "").Trim().TrimEnd('/');
         _key = (apiKey ?? "").Trim();
+        if (!string.IsNullOrWhiteSpace(model)) _model = model.Trim();
     }
 
     /// <summary>主动回复：重启定时器（默认关闭；开启后每 5~60 分钟读前台窗口并主动聊天）。</summary>
@@ -92,7 +104,7 @@ public class PetBrain
             if (string.IsNullOrWhiteSpace(_base)) { PostToWeb("系统未配置网关地址，请右键打开设置填写"); return; }
             var payload = new
             {
-                model = "mini-max-m3",
+                model = _model,
                 messages = new object[]
                 {
                     new { role = "system", content = SystemPrompt },
@@ -126,5 +138,10 @@ public class PetBrain
             }));
         }
         catch { }
+    }
+    /** 释放定时器（窗口关闭时调用） */
+    public void Dispose()
+    {
+        try { _timer?.Dispose(); _timer = null; } catch { }
     }
 }

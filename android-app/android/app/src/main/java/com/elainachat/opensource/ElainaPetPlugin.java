@@ -23,6 +23,16 @@ public class ElainaPetPlugin extends Plugin {
         return getContext().getSharedPreferences("elaina_pet", android.content.Context.MODE_PRIVATE);
     }
 
+    /** 打开本应用悬浮窗权限设置页（预检与用户点击共用） */
+    private void openOverlaySettingsInternal() {
+        try {
+            Intent i = new Intent(android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    android.net.Uri.parse("package:" + getContext().getPackageName()));
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            getContext().startActivity(i);
+        } catch (Throwable ignored) { }
+    }
+
     @PluginMethod
     public void setEnabled(PluginCall call) {
         JSObject o = call.getData();
@@ -32,6 +42,7 @@ public class ElainaPetPlugin extends Plugin {
         String systemPrompt = o.optString("systemPrompt", "");
         int interval = o.optInt("interval", 15);
         boolean proactive = o.optBoolean("proactive", false);
+        String model = o.optString("model", "");
         // scale / clickthrough 在下方随 o.opt... 存取
         sp().edit()
                 .putBoolean("enabled", enabled)
@@ -42,7 +53,25 @@ public class ElainaPetPlugin extends Plugin {
                 .putBoolean("proactive", proactive)
                 .putFloat("scale", (float) Math.max(0.6, Math.min(1.6, o.optDouble("scale", 1.0))))
                 .putBoolean("clickthrough", o.optBoolean("clickthrough", false))
+                .putString("model", model)
                 .apply();
+        /* 悬浮窗权限预检：未授权先引导，避免服务启动后自杀（前台通知闪现） */
+        if (enabled && !android.provider.Settings.canDrawOverlays(getContext())) {
+            openOverlaySettingsInternal();
+            JSObject r0 = new JSObject();
+            r0.put("ok", false);
+            r0.put("reason", "overlay");
+            call.resolve(r0);
+            return;
+        }
+        /* Android 13+ 通知权限（前台服务通知必需，仅声明不够） */
+        try {
+            if (Build.VERSION.SDK_INT >= 33 && getActivity() != null
+                    && getContext().checkSelfPermission("android.permission.POST_NOTIFICATIONS")
+                       != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                getActivity().requestPermissions(new String[] { "android.permission.POST_NOTIFICATIONS" }, 4910);
+            }
+        } catch (Throwable ignored) { }
         Intent i = new Intent(getContext(), ElainaPetService.class);
         if (enabled) {
             if (Build.VERSION.SDK_INT >= 26) getContext().startForegroundService(i);

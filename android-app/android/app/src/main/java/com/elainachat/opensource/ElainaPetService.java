@@ -111,20 +111,24 @@ public class ElainaPetService extends Service {
             if (clickthrough) petFlags |= WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
             WindowManager.LayoutParams lp = new WindowManager.LayoutParams(
                     dp((int) (300 * petScale)), dp((int) (470 * petScale)),
-                    WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                    (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+                            ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+                            : WindowManager.LayoutParams.TYPE_PHONE),
                     petFlags,
                     PixelFormat.TRANSLUCENT);
             lp.gravity = Gravity.TOP | Gravity.RIGHT;
             lp.x = dp(8);
             lp.y = dp(120);
 
+            petParams = lp;   /* 提升为字段：输入焦点切换时需要动态改 flags */
             petView = new WebView(this);
             WebSettings ws = petView.getSettings();
             ws.setJavaScriptEnabled(true);
             ws.setDomStorageEnabled(true);
             ws.setAllowFileAccess(true);
             ws.setAllowFileAccessFromFileURLs(true);
-            ws.setAllowUniversalAccessFromFileURLs(true);
+            /* 安全：只允许本地 asset 页面（配合 WebViewClient 导航白名单），不开放通用跨域文件访问 */
+            ws.setAllowUniversalAccessFromFileURLs(false);
             ws.setCacheMode(WebSettings.LOAD_DEFAULT);
             petView.setBackgroundColor(Color.TRANSPARENT);
             petView.setOverScrollMode(View.OVER_SCROLL_NEVER);
@@ -135,7 +139,8 @@ public class ElainaPetService extends Service {
                     ai.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_BROUGHT_TO_FRONT);
                     startActivity(ai);
                 } catch (Exception e) { /* 忽略 */ }
-            });
+            }, () -> dragging = true, () -> dragging = false, focused -> setInputFocus(focused));
+            try { bridge.setModel(sp.getString("model", "")); } catch (Throwable ignored) { }
             petView.addJavascriptInterface(bridge, "PetBridge");
             petView.loadUrl("file:///android_asset/public/pet.html");
 
@@ -143,30 +148,54 @@ public class ElainaPetService extends Service {
             petView.setOnTouchListener((v, event) -> {
                 switch (event.getActionMasked()) {
                     case MotionEvent.ACTION_DOWN:
-                        return false;
+                        /* 记录起点，否则首帧 MOVE 会用 rawX-0 把窗口甩出屏幕 */
+                        lastTouchX = event.getRawX();
+                        lastTouchY = event.getRawY();
+                        return false;   /* 不消费 DOWN，保证 WebView 内部点击/输入正常 */
                     case MotionEvent.ACTION_MOVE:
+                        if (!dragging) return false;   /* 仅前端拖拽条激活时拖动窗口 */
                         lp.x = (int) (lp.x + (event.getRawX() - lastTouchX));
                         lp.y = (int) (lp.y + (event.getRawY() - lastTouchY));
                         lastTouchX = event.getRawX();
                         lastTouchY = event.getRawY();
+                        clampToScreen(lp);
                         if (windowManager != null && petView != null) windowManager.updateViewLayout(petView, lp);
                         return true;
-                    case MotionEvent.ACTION_UP:
-                    case MotionEvent.ACTION_CANCEL:
-                        return false;
                     default:
                         return false;
                 }
             });
             windowManager.addView(petView, lp);
-            lastTouchX = 0; lastTouchY = 0;
         } catch (Exception e) {
             /* 无悬浮窗权限：UserFeedback 由插件层引导 */
             stopSelf();
         }
     }
     private float lastTouchX = 0, lastTouchY = 0;
+    private WindowManager.LayoutParams petParams;
+    private volatile boolean dragging = false;
+
+    /** 输入焦点切换：悬浮窗默认 NOT_FOCUSABLE，输入框聚焦时需临时恢复焦点才能弹软键盘 */
+    private void setInputFocus(boolean focused) {
+        try {
+            if (petParams == null) return;
+            if (focused) petParams.flags &= ~WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
+            else petParams.flags |= WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
+            if (windowManager != null && petView != null) windowManager.updateViewLayout(petView, petParams);
+        } catch (Throwable ignored) { }
+    }
     private int dp(int v) { return (int) (v * getResources().getDisplayMetrics().density + 0.5f); }
+
+    /** 拖动时把悬浮窗钳制在屏幕内（gravity=TOP|RIGHT：x 为距右边缘距离） */
+    private void clampToScreen(WindowManager.LayoutParams lp) {
+        try {
+            android.util.DisplayMetrics dm = getResources().getDisplayMetrics();
+            int maxRight = Math.max(0, dm.widthPixels - lp.width);
+            lp.x = Math.max(0, Math.min(lp.x, maxRight));
+            int maxBottom = Math.max(0, dm.heightPixels - lp.height);
+            lp.y = Math.max(0, Math.min(lp.y, maxBottom));
+        } catch (Throwable ignored) { }
+    }
 
     /* ---------- 定时主动回复 ---------- */
     private void scheduleLoop() {
@@ -195,11 +224,23 @@ public class ElainaPetService extends Service {
 
     @Override
     public void onDestroy() {
-        handler.removeCallbacks(proactiveLoop);
+        handler.removeCallbacksAndMessages(null);
         try {
-            if (petView != null && windowManager != null) windowManager.removeView(petView);
-        } catch (Exception e) { /* 已移除 */ }
+            if (petView != null) {
+                try { petView.stopLoading(); } catch (Exception ignored) { }
+                try { petView.loadUrl("about:blank"); } catch (Exception ignored) { }
+                try { petView.removeJavascriptInterface("PetBridge"); } catch (Exception ignored) { }
+                try { petView.setWebChromeClient(null); } catch (Exception ignored) { }
+                try { petView.setWebViewClient(new android.webkit.WebViewClient()); } catch (Exception ignored) { }
+                try { petView.setOnTouchListener(null); } catch (Exception ignored) { }
+                try { petView.removeAllViews(); } catch (Exception ignored) { }
+                try { if (windowManager != null) windowManager.removeViewImmediate(petView); } catch (Exception ignored) { }
+                try { petView.destroy(); } catch (Exception ignored) { }   /* 释放 Chromium 原生资源，避免 Service 泄漏 */
+            }
+        } catch (Exception e) { /* 忽略 */ }
         petView = null;
+        bridge = null;
+        windowManager = null;
         instance = null;
         super.onDestroy();
     }

@@ -20,7 +20,6 @@ public partial class MainWindow : Window
     private CoreWebView2Environment? _env;
     private PetBrain? _brain;
     private LocalProxy? _proxy;
-    private bool _petMode;
     private string _appDir = AppContext.BaseDirectory;
     private double _chatW = 1180, _chatH = 800;
 
@@ -133,11 +132,12 @@ public partial class MainWindow : Window
         catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[JS→C#] " + ex.Message); }
     }
 
-    /* ---------- 桌宠模式（由设置「桌宠」段控制，默认关闭） ---------- */
+    /* ---------- 桌宠（独立窗口，与主界面共存；由设置「桌宠」段控制，默认关闭） ---------- */
+    private PetWindow? _petWindow;
     private async void SyncPet(bool? force = null)
     {
         bool want;
-        if (force.HasValue) { want = force.Value; }
+        if (force.HasValue) want = force.Value;
         else
         {
             want = false;
@@ -148,32 +148,69 @@ public partial class MainWindow : Window
             }
             catch { }
         }
-        if (want == _petMode) return;
-        _petMode = want;
-        await ApplyPetSizeAsync();
-        if (_petMode)
+        if (want)
         {
-            _chatW = Width; _chatH = Height;
-            Width = 360; Height = 520;
-            var wa = SystemParameters.WorkArea;
-            Left = wa.Right - Width - 8;
-            Top = wa.Bottom - Height - 8;
-            Topmost = true;
-            TitleBar.Visibility = Visibility.Collapsed;
-            var html = Path.Combine(_appDir, "www", "pet.html");
-            if (!File.Exists(html)) html = Path.Combine(Environment.CurrentDirectory, "www", "pet.html");
-            WebView.CoreWebView2.Navigate(new Uri(Path.GetFullPath(html)).AbsoluteUri);
+            if (_petWindow == null)
+            {
+                _petWindow = new PetWindow();
+                _petWindow.Closed += (_, _) => { _petWindow = null; };
+                _petWindow.Show();
+                await SyncPetConfigFromWebAsync();   /* 关键：桌宠聊天/主动回复必须拿到前端的网关与 Key */
+            }
+            else
+            {
+                await SyncPetConfigFromWebAsync();
+                _petWindow.RefreshFromSettings();
+                _petWindow.Activate();
+            }
         }
         else
         {
-            Width = _chatW; Height = _chatH;
-            Left = (SystemParameters.WorkArea.Width - Width) / 2;
-            Top = Math.Max(0, (SystemParameters.WorkArea.Height - Height) / 2);
-            Topmost = false;
-            WindowState = WindowState.Normal;
-            LoadChatPage();
+            try { _petWindow?.Close(); } catch { }
+            _petWindow = null;
         }
     }
+
+    /* 桌宠尺度（滑块 0.6~1.6）+ 点击穿透（设置 localStorage） */
+    private void ApplyPetSizeAsync() { _petWindow?.RefreshFromSettings(); }
+
+    /** 从主窗（web-pack/index.html 的 origin）读 localStorage，注入桌宠大脑 */
+    private async Task SyncPetConfigFromWebAsync()
+    {
+        try
+        {
+            if (_petWindow == null || WebView.CoreWebView2 == null) return;
+            var settingsRaw = await WebView.CoreWebView2.ExecuteScriptAsync(
+                "(function(){try{return localStorage.getItem('elaina_settings')||'{}'}catch(e){return '{}'}})()");
+            var proactiveRaw = await WebView.CoreWebView2.ExecuteScriptAsync(
+                "(function(){try{return localStorage.getItem('elaina_pet_proactive')||'0'}catch(e){return '0'}})()");
+            var intervalRaw = await WebView.CoreWebView2.ExecuteScriptAsync(
+                "(function(){try{return localStorage.getItem('elaina_pet_interval')||'15'}catch(e){return '15'}})()");
+            string Unwrap(string s)
+            {
+                s = (s ?? "").Trim();
+                if (s.Length >= 2 && s[0] == '"') { try { return JsonSerializer.Deserialize<string>(s) ?? ""; } catch { } }
+                return s.Trim('"');
+            }
+            string baseUrl = "", apiKey = "", model = "";
+            try
+            {
+                using var doc = JsonDocument.Parse(Unwrap(settingsRaw));
+                if (doc.RootElement.TryGetProperty("baseUrl", out var bu)) baseUrl = bu.GetString() ?? "";
+                if (doc.RootElement.TryGetProperty("apiKey", out var ak)) apiKey = ak.GetString() ?? "";
+                if (doc.RootElement.TryGetProperty("model", out var md)) model = md.GetString() ?? "";
+            }
+            catch { }
+            if (string.IsNullOrWhiteSpace(baseUrl)) baseUrl = PetBrain.DefaultGateway;
+            bool proactive = Unwrap(proactiveRaw) == "1";
+            int interval = 15;
+            int.TryParse(Unwrap(intervalRaw), out interval);
+            if (interval < 5) interval = 15;
+            _petWindow.ConfigureBrain(baseUrl, apiKey, model, proactive, interval);
+        }
+        catch { }
+    }
+
     private void StartLocalProxy()
     {
         try
@@ -196,60 +233,19 @@ public partial class MainWindow : Window
         catch { }
     }
 
-    protected override void OnClosed(EventArgs e)
-    {
-        _proxy?.Dispose();
-        base.OnClosed(e);
-    }
-
     private void SyncPetFromSettings()
     {
         try { SyncPet(); } catch { }
     }
 
-    /* 桌宠尺度（滑块 0.6~1.6）+ 点击穿透（设置 localStorage） */
-    private async Task ApplyPetSizeAsync()
+    protected override void OnClosed(EventArgs e)
     {
-        try
-        {
-            double scale = 1.0; bool ct = false;
-            var v = await WebView.CoreWebView2.ExecuteScriptAsync("(function(){try{return localStorage.getItem('elaina_pet_scale')}catch(e){return '1'}})()");
-            var v2 = await WebView.CoreWebView2.ExecuteScriptAsync("(function(){try{return localStorage.getItem('elaina_pet_clickthrough')}catch(e){return '0'}})()");
-            var m = System.Text.RegularExpressions.Regex.Match(v ?? "", "[0-9.]+");
-            if (m.Success && double.TryParse(m.Value, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var sc))
-                scale = Math.Clamp(sc, 0.6, 1.6);
-            ct = v2.IndexOf("1", StringComparison.Ordinal) >= 0;
-            if (_petMode)
-            {
-                Width = 360 * scale;
-                Height = 520 * scale;
-            }
-            SetClickthrough(ct);
-        }
-        catch { }
+        try { _petWindow?.Close(); } catch { }
+        _proxy?.Dispose();
+        base.OnClosed(e);
     }
-    private void SetClickthrough(bool enabled)
-    {
-        try
-        {
-            IntPtr h = new System.Windows.Interop.WindowInteropHelper(this).Handle;
-            int style = GetWindowLong(h, GWL_EXSTYLE);
-            if (enabled) style |= WS_EX_TRANSPARENT;
-            else style &= ~WS_EX_TRANSPARENT;
-            SetWindowLong(h, GWL_EXSTYLE, style);
-        }
-        catch { }
-    }
-    private const int GWL_EXSTYLE = -20;
-    private const int WS_EX_TRANSPARENT = 0x00000020;
-    [DllImport("user32.dll", EntryPoint = "GetWindowLongPtr")]
-    private static extern IntPtr GetWindowLongPtr(IntPtr hWnd, int nIndex);
-    [DllImport("user32.dll", EntryPoint = "SetWindowLongPtr")]
-    private static extern IntPtr SetWindowLongPtr(IntPtr hWnd, int nIndex, IntPtr dwNewLong);
-    private static int GetWindowLong(IntPtr h, int i) => (int)(IntPtr.Size == 8 ? (long)GetWindowLongPtr(h, i) : (long)(uint)GetWindowLong32(h, i));
-    private static int SetWindowLong(IntPtr h, int i, int v) => IntPtr.Size == 8 ? (int)(long)SetWindowLongPtr(h, i, (IntPtr)v) : (int)SetWindowLong32(h, i, v);
-    [DllImport("user32.dll", EntryPoint = "GetWindowLong")] private static extern int GetWindowLong32(IntPtr hWnd, int nIndex);
-    [DllImport("user32.dll", EntryPoint = "SetWindowLong")] private static extern int SetWindowLong32(IntPtr hWnd, int nIndex, int dwNewLong);
+
+
 
     private void Min_Click(object sender, RoutedEventArgs e) => WindowState = WindowState.Minimized;
 
@@ -277,8 +273,8 @@ public partial class MainWindow : Window
     private void Header_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
         if (e.OriginalSource is System.Windows.Controls.Button) return;
-        if (e.ClickCount == 2 && !_petMode) Max_Click(sender, e);
-        else DragMove();
+        if (e.ClickCount == 2) Max_Click(sender, e);
+        else { try { DragMove(); } catch { } }
     }
 
     private void Exit_Click(object sender, RoutedEventArgs e) => Application.Current.Shutdown();

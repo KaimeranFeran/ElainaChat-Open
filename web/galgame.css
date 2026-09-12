@@ -138,7 +138,7 @@
 @media (max-width: 560px) {
   #galgameLayer #ggStage { bottom: 6px !important; }
   #galgameLayer #ggAvatar {
-    max-width: 104% !important;
+    max-width: calc(104% * var(--gg-scale, 1)) !important;
     max-height: 118% !important;
     transform: translateY(9%) !important;
     object-position: bottom center !important;
@@ -147,5 +147,5 @@
 /* 桌面端构图（同样强制一次，保证头脚都在画面内且脚贴对话框） */
 @media (min-width: 561px) {
   #galgameLayer #ggStage { bottom: 0 !important; }
-  #galgameLayer #ggAvatar { max-height: 100% !important; max-width: 68% !important; transform: translateY(7%) !important; object-position: bottom center !important; }
+  #galgameLayer #ggAvatar { max-height: 100% !important; max-width: calc(68% * var(--gg-scale, 1)) !important; transform: translateY(7%) !important; object-position: bottom center !important; }
 }
