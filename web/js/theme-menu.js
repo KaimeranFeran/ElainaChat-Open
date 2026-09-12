@@ -718,4 +718,29 @@
   }, 'template picker');
 
 
+  /* ---- 10) 滑块填充跟随（所有 .custom-slider：拖动时更新 --slider-progress） ---- */
+  safe(() => {
+    const sync = (el) => {
+      try {
+        const min = Number(el.min || 0);
+        const max = Number(el.max || 100);
+        const v = Number(el.value);
+        const pct = ((v - min) / Math.max(1e-6, max - min)) * 100;
+        el.style.setProperty('--slider-progress', pct.toFixed(2) + '%');
+      } catch (e) {}
+    };
+    const bindAll = () => {
+      document.querySelectorAll('input[type="range"]').forEach((el) => {
+        if (el.dataset.sliderBound === '1') { sync(el); return; }
+        el.dataset.sliderBound = '1';
+        sync(el);
+        el.addEventListener('input', () => sync(el));
+        el.addEventListener('change', () => sync(el));
+        el.addEventListener('pointerdown', () => sync(el));
+      });
+    };
+    bindAll();
+    setTimeout(bindAll, 600);
+    setInterval(bindAll, 900);
+  }, 'slider progress');
 })();
