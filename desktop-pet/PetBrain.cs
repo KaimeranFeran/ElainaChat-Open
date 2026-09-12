@@ -22,7 +22,16 @@ public class PetBrain
         "你是伊蕾娜（Elaina），一位微傲娇的天才魔女，喜欢旅行与读书。说话温柔但带一点小傲娇，用中文回复，简洁自然，偶尔有（动作/神态）描述。";
 
     /** 默认网关（与前端 config.json / pack.mjs 注入保持一致） */
-    public const string DefaultGateway = "https://elainachat.j3.ink";
+    public const string DefaultGateway = "http://106.14.16.68";
+
+    /** 旧域名统一归一化到当前默认网关（https 域名在 WebView/HttpClient 侧握手不通，PC 端会 130s 超时） */
+    public static string NormalizeGateway(string? url)
+    {
+        var v = (url ?? "").Trim().TrimEnd('/');
+        if (v.Length == 0) return DefaultGateway;
+        if (v.Contains("elainachat.j3.ink", StringComparison.OrdinalIgnoreCase)) return DefaultGateway;
+        return v;
+    }
 
     private readonly WebView2 _web;
     /* 静态复用：避免每次新建都不释放导致端口耗尽 */
@@ -68,6 +77,7 @@ public class PetBrain
 
     public void Configure(string baseUrl, string apiKey, string? model = null)
     {
+        baseUrl = NormalizeGateway(baseUrl);
         var candidate = (baseUrl ?? "").Trim().TrimEnd('/');
         _base = string.IsNullOrWhiteSpace(candidate) ? DefaultGateway : candidate;
         _key = (apiKey ?? "").Trim();
