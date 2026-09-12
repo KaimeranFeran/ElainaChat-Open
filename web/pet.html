@@ -8,8 +8,11 @@
 </head>
 <body>
 <div id="stage">
-  <div id="dragStrip" title="按住拖动"></div>
+  <div id="dragStrip" title="按住拖动"><span>⠿ 按住此处拖动</span></div>
   <button id="petBackBtn" type="button" title="返回主界面" style="display:none">⟲</button>
+  <!-- 关闭桌宠：必须做在网页里。WPF 的 WebView2 是 HwndHost，
+       任何叠在它上面的 WPF 控件（原生按钮）都会被它的原生子窗口盖住、收不到鼠标。 -->
+  <button id="petCloseBtn" type="button" title="关闭桌宠" style="display:none">✕</button>
 
   <!-- 顶部：气泡区 -->
   <div id="dialogZone">

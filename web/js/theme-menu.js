@@ -220,6 +220,13 @@
   safe(() => {
     const themeSec = document.getElementById('themeSettingSection');
     if (!themeSec || document.getElementById('petSettingSection')) return;
+    /* 手机端已整体移除桌宠（用户要求）：安卓 App 里不渲染这一段，
+       也不再有"启用 / 权限引导 / 主动回复"等入口。PC 端桌宠不受影响。 */
+    try {
+      const capIsNative = !!(window.Capacitor && ((window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform())
+        || window.Capacitor.platform === 'android'));
+      if (capIsNative) return;
+    } catch (e) {}
     const PK = (k, d) => { try { const v = localStorage.getItem('elaina_pet_' + k); return v === null ? d : v; } catch (e) { return d; } };
     const SK = (k, v) => { try { localStorage.setItem('elaina_pet_' + k, v); } catch (e) {} };
     const sec = document.createElement('section');
@@ -357,6 +364,18 @@
         else cap.openBatteryWhitelist();
       } catch (e) {}
     }));
+    /* 供 C# 侧广播：在桌宠窗里点 ✕ 关掉桌宠后，把"已关闭"同步回设置界面。
+       只写 localStorage 是不够的 —— 设置面板如果正开着，开关和依赖行不会自己刷新，
+       用户会看到"桌宠已经关了，但设置里还显示已开启"。 */
+    window.ElainaPetSetEnabled = function (on) {
+      try {
+        SK('enabled', on ? '1' : '0');
+        syncRows();
+        notifyPet();
+        window.dispatchEvent(new CustomEvent('elaina-pet-changed', { detail: { enabled: !!on } }));
+      } catch (e) {}
+    };
+
     function notifyPet() {
       const on = PK('enabled', '0') === '1';
       try {
@@ -389,8 +408,10 @@
 
   /* ---- 9) Galgame 界面设置（Finder「Galgame」段；默认关闭） ---- */
   safe(() => {
+    /* 注意：Galgame 段以前是插在桌宠段后面的，于是"桌宠段不存在"时整段被 return 掉。
+       手机端移除桌宠后正是这种情况 —— Galgame 设置整个消失。现在回退到插在外观段之后。 */
     const petSec = document.getElementById('petSettingSection');
-    if (!petSec || document.getElementById('galgameSettingSection')) return;
+    if (document.getElementById('galgameSettingSection')) return;
     const sec = document.createElement('section');
     sec.id = 'galgameSettingSection';
     sec.innerHTML =
@@ -419,7 +440,9 @@
       '<div class="sw-setting-theme-row gg-row" style="display:none"><div class="sw-ttl" style="flex:1 1 auto">进入 Galgame 界面</div>' +
       '<button type="button" class="sw-seg" id="ggEnterBtn" style="min-height:32px;padding:0 16px">立即进入 ▶</button></div>' +
       '<p class="text-[11px] text-indigo-300 leading-relaxed" style="padding:8px 4px 0">Galgame 界面与主界面共用同一份对话数据；可在界面右上角「退出 Galgame」或在此关闭开关（默认关闭）。</p>';
-    petSec.insertAdjacentElement('afterend', sec);
+    const anchor = petSec || document.getElementById('themeSettingSection');
+    if (anchor && anchor.parentNode) anchor.insertAdjacentElement('afterend', sec);
+    else if (sec.parentNode == null) return;
     const sw = document.getElementById('swGgMain');
     const rows = () => sec.querySelectorAll('.gg-row');
     const speedLabel = (v) => { const n = Number(v) || 24; return n <= 12 ? '快' : n >= 44 ? '慢' : '正常'; };
@@ -544,6 +567,10 @@
     let suppressed = false;
     let startX = 0, startY = 0;
     let card = null, wf = null, msgId = null;
+    /* OCR M9：lastTouchTs 以前从未声明，onTouchStart/onMouseDown 一执行就抛
+       ReferenceError: lastTouchTs is not defined（已用 pageerror 实测复现），
+       pressStart 永远不会被执行 —— 这就是「PC 上语音条拖不动」的直接原因。 */
+    let lastTouchTs = 0;
     let ratio = 0;
 
     const SPIKES = 15;
@@ -587,20 +614,25 @@
       card = c;
       wf = card.querySelector('.voice-waveform');
       if (!wf) return;
+      /* 语音条与消息区职责分离（用户要求）：
+         只有按在"波形条"上才进入拖动 seek；按在播放圆钮/时长/气泡文字上仍是普通点击，
+         避免想选字或点播放时被误判成跳转。 */
+      const onWave = !!(target && target.closest && target.closest('.voice-waveform') === wf);
+      if (!onWave) return;
       const btn = card.querySelector('[id^="voice-player-"]');
       msgId = btn ? btn.id.replace('voice-player-', '') : null;
       if (!btn) return;
       startX = (ev.touches ? ev.touches[0].clientX : ev.clientX);
       startY = (ev.touches ? ev.touches[0].clientY : ev.clientY);
-      pressTimer = setTimeout(() => {
-        pressTimer = null;
-        seeking = true;
-        window.__voiceSeeking = true;
-        suppressed = true;
-        if (!wf.querySelector('.wf-spikes')) buildSpikes(wf);
-        card.classList.add('voice-zoomed');
-        ratio = 0; applyRatio(0);
-      }, 480);
+      /* 波形条本身就是进度条：按下即进入 seek（不必再等 480ms 长按），
+         并且和播放推进共用同一个 ratio → 波形点亮动画始终同步。 */
+      pressTimer = null;
+      seeking = true;
+      window.__voiceSeeking = true;
+      suppressed = true;
+      if (!wf.querySelector('.wf-spikes')) buildSpikes(wf);
+      card.classList.add('voice-zoomed');
+      ratio = ratioFromEvent(ev); applyRatio(ratio);
     };
     const pressMove = (ev) => {
       if (!seeking || !card || !wf) return;
@@ -613,27 +645,33 @@
       }
     };
     const pressEnd = () => {
-      /* OCR 二轮 N2-end：先取出目标值并彻底复位，再执行跳转，避免过期 msgId/ratio 误跳转 */
-      const _c = card, _r = ratio, _id = msgId;
-      try { resetSeek(false); card = _c; wf = null; msgId = _id; ratio = _r; } catch (e) {}
+      /* 关键修复（「拖动语音条后不在拖动位置播放」的根因）：
+         resetSeek(false) 会把 seeking 置回 false，而紧接着的判断又在读 seeking ——
+         条件恒为真，函数直接 return：跳转永远不执行，还把 suppressed 清掉，
+         于是"拖动"退化成一次普通的播放/暂停点击。
+         正确做法是先把"到底有没有在拖动"和 ratio/msgId 抓出来，再复位。 */
+      const wasSeeking = seeking;
+      const c = card;
+      const r = ratio;
+      const id = msgId;
+      resetSeek(false);
+      card = c; msgId = id; ratio = r;
 
       if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
-      /* OCR 二轮 N2：先复位再执行跳转，避免用过期的 msgId/ratio 误跳转 */
-      if (!seeking || !card) { if (pressTimer === null) suppressed = false; return; }
-      const c = card;
+      if (!wasSeeking || !c) { suppressed = false; return; }
+
       card = null; seeking = false;
       window.__voiceSeeking = false;
-      const r = ratio;
       const info2 = window.__voiceSeekInfo ? window.__voiceSeekInfo() : { ok: false };
       if (info2.ok) {
-        /* 进度交给全局引擎（__voiceSeek 成功会写入 __voicePlaybackStart） */
-        try { window.__voiceSeek(r, msgId); } catch (e) {}
+        /* 已有音源：交给全局引擎跳转（成功后会写入 __voicePlaybackStart，进度条随之同步） */
+        try { window.__voiceSeek(r, id); } catch (e) {}
       } else {
         /* 首次播放前：记下目标位置并自动开始播放；音频就位后直接从目标处起播 */
-        try { window.__voicePendingSeek = { ratio: r, msgId: msgId, at: Date.now() }; } catch (e) {}
-        try { if (typeof replayAIMessage === 'function') replayAIMessage(msgId); } catch (e) {}
+        try { window.__voicePendingSeek = { ratio: r, msgId: id, at: Date.now() }; } catch (e) {}
+        try { if (typeof replayAIMessage === 'function') replayAIMessage(id); } catch (e) {}
       }
-      setTimeout(() => { c.classList.remove('voice-zoomed'); }, 1300);
+      setTimeout(() => { try { c.classList.remove('voice-zoomed'); } catch (e) {} }, 1300);
       setTimeout(() => { suppressed = false; }, 200);
     };
     /* OCR 二轮 N2：取消路径必须彻底复位（seeking/card/wf/ratio/zoom），否则 seeking 永久为 true */

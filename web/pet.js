@@ -1,4 +1,4 @@
-/* Elaina Pet：LingChat 风格三段式（深色玻璃气泡 + 静态立绘 + 输入） */
+/* Elaina Pet：LingChat 风格三段式（深色玻璃气泡 + 静态立�?+ 输入�?*/
 (function () {
   'use strict';
   let scroller = document.getElementById('bubbleScroller');
@@ -6,7 +6,7 @@
   let sendBtn = document.getElementById('petSend');
   let typeTimer = null;
 
-  /* ===== 伊蕾娜表情系统（回复情绪词 → 切换立绘） ===== */
+  /* ===== 伊蕾娜表情系统（回复情绪�?�?切换立绘�?===== */
   let EMOTIONS = (window.ElainaEmotion && window.ElainaEmotion.labels)
     ? window.ElainaEmotion.labels()
     : { calm: '平静' };
@@ -22,7 +22,7 @@
     emoTimer = setTimeout(function () { setEmotion('calm'); }, 4200);
   }
   function emotionFromText(text) {
-    /* OCR M3：统一走 ElainaEmotion（与 Galgame 表情一致） */
+    /* OCR M3：统一�?ElainaEmotion（与 Galgame 表情一致） */
     try { if (window.ElainaEmotion) return window.ElainaEmotion.from(text); } catch (e) {}
     return null;
   }
@@ -40,7 +40,7 @@
     div.className = 'pet-bubble ' + who;
     let speak = document.createElement('div');
     speak.className = 'pet-speak';
-    speak.textContent = who === 'me' ? '你' : '伊蕾娜';
+    speak.textContent = who === 'me' ? '�? : '伊蕾�?;
     let msg = document.createElement('div');
     msg.className = 'pet-msg';
     msg.textContent = text;
@@ -88,7 +88,7 @@
   }
   window.PetShowTip = showTip;
 
-  /* PC 拖拽（仅无 PetBridge 时生效，避免与安卓桥双绑定 —— OCR 二轮 N1） */
+  /* PC 拖拽（仅�?PetBridge 时生效，避免与安卓桥双绑�?—�?OCR 二轮 N1�?*/
   (function bindPcDrag() {
     if (window.PetBridge && typeof window.PetBridge.startDrag === 'function') return;
     const strip = document.getElementById('dragStrip');
@@ -96,8 +96,9 @@
     const notify = function () {
       try { if (window.chrome && window.chrome.webview) window.chrome.webview.postMessage({ kind: 'drag' }); } catch (e) {}
     };
-    strip.addEventListener('mouseup', notify);
-    strip.addEventListener('touchend', function (ev) { ev.preventDefault(); notify(); }, { passive: false });
+    /* 必须�?mousedown 就通知：C# 侧是"按住期间跟随光标搬窗�?�?       原来绑在 mouseup 上，等于松手之后才喊开�?—�?窗口纹丝不动，这就是「PC 桌宠无法拖动」的根因�?*/
+    strip.addEventListener('mousedown', function (ev) { ev.preventDefault(); notify(); });
+    strip.addEventListener('touchstart', function (ev) { ev.preventDefault(); notify(); }, { passive: false });
     strip.addEventListener('contextmenu', function (ev) { ev.preventDefault(); });
   })();
 
@@ -110,21 +111,14 @@
         }
       } catch (e) {}
     };
-    if (inputEl) {
-      inputEl.addEventListener('focus', function () { notifyPcInputFocus(true); });
-      inputEl.addEventListener('blur', function () { notifyPcInputFocus(false); });
-    }
-    if (inputEl && window.PetBridge) {
-      if (typeof window.PetBridge.setInputFocus === 'function') {
-        inputEl.addEventListener('focus', function () { try { window.PetBridge.setInputFocus(true); } catch (e) {} });
-        inputEl.addEventListener('blur', function () { try { window.PetBridge.setInputFocus(false); } catch (e) {} });
-      }
-    }
-    const inputEl = document.getElementById('petInput');
-    if (inputEl && window.PetBridge) {
-      if (typeof window.PetBridge.setInputFocus === 'function') {
-        inputEl.addEventListener('focus', function () { try { window.PetBridge.setInputFocus(true); } catch (e) {} });
-        inputEl.addEventListener('blur', function () { try { window.PetBridge.setInputFocus(false); } catch (e) {} });
+    /* OCR M9：这里原来先用了尚未初始化的 const inputEl（第 123 行才声明），
+       TDZ 直接�?ReferenceError，被下面�?catch{} 吞掉 —�?结果整段安卓拖拽/输入焦点绑定全部失效�?       统一改用文件顶部�?input�?*/
+    if (input) {
+      input.addEventListener('focus', function () { notifyPcInputFocus(true); });
+      input.addEventListener('blur', function () { notifyPcInputFocus(false); });
+      if (window.PetBridge && typeof window.PetBridge.setInputFocus === 'function') {
+        input.addEventListener('focus', function () { try { window.PetBridge.setInputFocus(true); } catch (e) {} });
+        input.addEventListener('blur', function () { try { window.PetBridge.setInputFocus(false); } catch (e) {} });
       }
     }
     const dragEl = document.getElementById('dragStrip') || document.getElementById('petDrag') || document.querySelector('.pet-drag');
@@ -137,7 +131,7 @@
     }
   } catch (e) {}
 
-  /* ===== 语音输入（与主界面同链路：麦克风→16k float32→网关 ASR→填入并发送） ===== */
+  /* ===== 语音输入（与主界面同链路：麦克风�?6k float32→网�?ASR→填入并发送） ===== */
   let recCtx = null, recStream = null, recNode = null, recChunks = [], recActive = false, recTimer = null;
   function ggCfg() {
     let cfg = { baseUrl: '', apiKey: '' };
@@ -192,14 +186,14 @@
     if (!sendIt) { recChunks = []; return; }
     let pcm = mergeChunks(recChunks);
     recChunks = [];
-    if (pcm.length < 16000 * 0.15) { showTip('录音太短，请再说一次'); return; }
+    if (pcm.length < 16000 * 0.15) { showTip('录音太短，请再说一�?); return; }
     asrUpload(pcm);
   }
   function asrUpload(pcm) {
     let cfg = ggCfg();
     if (!cfg.baseUrl) { showTip('请先在设置里填写服务地址'); return; }
     if (!cfg.apiKey) { showTip('请先在设置里填写使用 Key'); return; }
-    showTip('正在识别…');
+    showTip('正在识别�?);
     fetch(cfg.baseUrl + '/api/asr-cloud-final', {
       method: 'POST',
       headers: {
@@ -212,12 +206,12 @@
     }).then(function (r) { return r.json().catch(function () { return null; }).then(function (p) { return { ok: r.ok, p: p }; }); })
       .then(function (res) {
         let text = res.p && res.p.text ? String(res.p.text).trim() : '';
-        if (!res.ok || !text) { showTip('识别失败：' + ((res.p && (res.p.message || res.p.error)) || '请重试')); return; }
+        if (!res.ok || !text) { showTip('识别失败�? + ((res.p && (res.p.message || res.p.error)) || '请重�?)); return; }
         if (input) input.value = text;
-        showTip('识别完成，正在发送…');
+        showTip('识别完成，正在发送�?);
         send();
       })
-      .catch(function (e) { showTip('识别请求失败：' + (e && e.message ? e.message : '网络错误')); });
+      .catch(function (e) { showTip('识别请求失败�? + (e && e.message ? e.message : '网络错误')); });
   }
   function startVoiceInput() {
     if (recActive) { stopVoiceInput(true); return; }
@@ -241,17 +235,29 @@
         recActive = true;
         let btn = document.getElementById('petMic');
         if (btn) btn.classList.add('rec');
-        showTip('正在聆听… 再次点击结束并发送');
+        showTip('正在聆听�?再次点击结束并发�?);
         recTimer = setTimeout(function () { if (recActive) stopVoiceInput(true); }, 60000);
       })
-      .catch(function (e) { showTip('麦克风不可用：' + (e && e.message ? e.message : '权限被拒绝')); });
+      .catch(function (e) { showTip('麦克风不可用�? + (e && e.message ? e.message : '权限被拒�?)); });
   }
   try {
     let micBtn = document.getElementById('petMic');
     if (micBtn) micBtn.addEventListener('click', function (ev) { ev.stopPropagation(); startVoiceInput(); });
   } catch (e) {}
 
-  /* 返回主界面（仅 PC 桌面） */
+  /* 关闭桌宠（仅 PC 桌面）：必须走网页按钮，�?pet.html 里的说明 */
+  try {
+    let closeBtn = document.getElementById('petCloseBtn');
+    if (closeBtn) {
+      closeBtn.style.display = '';
+      closeBtn.addEventListener('click', function (ev) {
+        ev.stopPropagation();
+        try { if (window.chrome && window.chrome.webview) window.chrome.webview.postMessage({ kind: 'pet-close' }); } catch (e) {}
+      });
+    }
+  } catch (e) {}
+
+  /* 返回主界面（�?PC 桌面�?*/
   try {
     let backBtn = document.getElementById('petBackBtn');
     let isPc = window.chrome && window.chrome.webview;

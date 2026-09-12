@@ -5,9 +5,17 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: transparen
   background: rgba(0, 0, 0, 0.001); }
 
 /* 拖拽条 */
-#dragStrip { position: absolute; top: 0; left: 10px; right: 10px; height: 22px; z-index: 40; cursor: grab; -webkit-user-select: none;
-  border-radius: 0 0 12px 12px; background: linear-gradient(180deg, rgba(0,122,255,0.25), transparent); }
-#dragStrip:active { cursor: grabbing; }
+#dragStrip { position: absolute; top: 6px; left: 8px; right: 44px; height: 24px; z-index: 40; cursor: grab;
+  -webkit-user-select: none; user-select: none; display: flex; align-items: center; justify-content: center;
+  border-radius: 12px; background: rgba(0,0,0,0.30); border: 1px solid rgba(255,255,255,0.18); }
+#dragStrip span { font-size: 11px; color: rgba(255,255,255,0.86); pointer-events: none; letter-spacing: .04em; }
+#dragStrip:active { cursor: grabbing; background: rgba(0,0,0,0.42); }
+/* 关闭按钮：独立圆形，和拖动条之间留出空隙，绝不重叠 */
+#petCloseBtn { position: absolute; top: 6px; right: 8px; z-index: 48; width: 24px; height: 24px;
+  border: 1px solid rgba(255,255,255,0.35); border-radius: 50%; cursor: pointer;
+  background: rgba(255,59,84,0.62); color: #fff; font-size: 12px; line-height: 1; padding: 0; }
+#petCloseBtn:hover { background: rgba(255,59,84,0.92); transform: scale(1.08); }
+#petCloseBtn:active { transform: scale(.9); }
 
 /* ============ 顶部：气泡（LingChat 深色玻璃风格） ============ */
 #dialogZone { position: relative; z-index: 30; flex: 0 0 38%; display: flex; flex-direction: column; justify-content: flex-end;
@@ -63,7 +71,7 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: transparen
 #petAvatar.emo-swap { animation: pet-breathe 6.5s ease-in-out infinite, pet-bob 9s ease-in-out 1.2s infinite, emo-in .32s cubic-bezier(.3,1.4,.5,1) both; }
 @keyframes emo-in { from { opacity: .3; transform: scale(.97); } to { opacity: 1; transform: scale(1); } }
 
-#petBackBtn { position: absolute; top: 34px; right: 8px; z-index: 45; width: 30px; height: 30px; border-radius: 50%;
+#petBackBtn { position: absolute; top: 36px; right: 8px; z-index: 45; width: 30px; height: 30px; border-radius: 50%;
   border: 1px solid rgba(255,255,255,0.14); background: rgba(10,13,18,0.6); color: rgba(255,255,255,0.85);
   font-size: 15px; cursor: pointer; backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
   -webkit-tap-highlight-color: transparent; transition: transform .15s ease, background .15s ease; }

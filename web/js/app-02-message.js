@@ -58,11 +58,27 @@
             if (pending) return pending;
             const dialogueOnly = sanitizeTtsText(message.text || '', false);
             if (!dialogueOnly) return Promise.resolve('');
-            const task = translateToJapanese(dialogueOnly).then(result => {
+            /* OCR M9 —— 「PC 端一点声音都没有」的根因：
+               translateToJapanese → callChatAPI 是流式请求，网关无响应/被中断时可能永远不 settle。
+               而这里会把那个 promise 记进 WeakMap，clearTask 只在 settle 时才触发 ——
+               于是某条消息只要卡过一次，之后每次点播放/自动朗读都在 await 一个永不 resolve 的 promise：
+               不发 /api/tts、不抛错、不出声，完全静默。
+               加硬超时，保证任务一定会 settle 并被清出 WeakMap，用户再点一次就能重试。 */
+            const jpTimeoutMs = 20000;
+            const task = Promise.race([
+                translateToJapanese(dialogueOnly),
+                new Promise(resolve => { setTimeout(() => resolve(''), jpTimeoutMs); })
+            ]).then(result => {
                 const japanese = String(result || '').trim();
-                if (!/[\u3040-\u30ff]/.test(japanese)) return '';
+                if (!/[\u3040-\u30ff]/.test(japanese)) {
+                    console.warn('[TTS] 日语朗读稿生成失败或超时（' + jpTimeoutMs + 'ms），本次不缓存，可重试');
+                    return '';
+                }
                 message.voiceJp = japanese;
                 return japanese;
+            }, error => {
+                console.warn('[TTS] 日语朗读稿请求失败，本次不缓存: ', error);
+                return '';
             });
             pendingJapaneseVoiceTextTasks.set(message, task);
             const clearTask = () => {
