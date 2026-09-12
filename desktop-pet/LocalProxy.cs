@@ -54,18 +54,20 @@ public sealed class LocalProxy : IDisposable
 
     private async Task HandleAsync(TcpClient client)
     {
+        /* OCR 二轮 2：stream 必须在 try 之外持有 —— 否则异常路径里它已被释放，catch 中的 502 写不出去 */
+        NetworkStream? netStream = null;
         try
         {
             client.ReceiveTimeout = 15000;
-            using var stream = client.GetStream();
-            using var reader = new StreamReader(stream, Encoding.UTF8, false, 8192, leaveOpen: true);
+            netStream = client.GetStream();
+            using var reader = new StreamReader(netStream!, Encoding.UTF8, false, 8192, leaveOpen: true);
             string? requestLine = await reader.ReadLineAsync();
             if (string.IsNullOrWhiteSpace(requestLine)) return;
             var parts = requestLine.Split(' ');
             if (parts.Length < 3) return;
             string method = parts[0], path = parts[1];
 
-            string? origin = null, contentType = null, authorization = null;
+            string? origin = null, contentType = null, authorization = null, acrh = null;
             int contentLength = 0;
             bool chunked = false;
             client.ReceiveTimeout = 15000;   /* OCR M2：避免客户端连上不发数据长期挂起 */
@@ -79,6 +81,7 @@ public sealed class LocalProxy : IDisposable
                 if (k == "origin") origin = v;
                 else if (k == "content-type") contentType = v;
                 else if (k == "authorization") authorization = v;
+                else if (k == "access-control-request-headers") acrh = v;   /* OCR 二轮 4：预检需回显 */
                 else if (k == "content-length") int.TryParse(v, out contentLength);
                 else if (k == "transfer-encoding" && v.ToLowerInvariant().Contains("chunked")) chunked = true;   /* OCR M2 */
             }
@@ -87,35 +90,38 @@ public sealed class LocalProxy : IDisposable
             bool localOrigin = string.IsNullOrEmpty(origin) || origin == "null" || origin.StartsWith("file://", StringComparison.OrdinalIgnoreCase);
             if (!localOrigin)
             {
-                await WriteResponseAsync(stream, 403, Encoding.UTF8.GetBytes("{\"error\":\"forbidden origin\"}"), "application/json; charset=utf-8", origin);
+                await WriteResponseAsync(netStream!, 403, Encoding.UTF8.GetBytes("{\"error\":\"forbidden origin\"}"), "application/json; charset=utf-8", origin);
                 return;
             }
 
-            /* 路径白名单 */
-            bool allowed = path.StartsWith("/api/", StringComparison.Ordinal)
-                        || path.Equals("/health", StringComparison.OrdinalIgnoreCase)
-                        || path.Equals("/announcement.json", StringComparison.OrdinalIgnoreCase)
-                        || path.StartsWith("/qr-", StringComparison.OrdinalIgnoreCase);
+            /* 路径白名单（剥离 query 后比较，避免 /announcement.json?t=1 被误判 404 —— OCR 二轮） */
+            string barePath = path;
+            int qIdx = barePath.IndexOf('?');
+            if (qIdx >= 0) barePath = barePath[..qIdx];
+            bool allowed = barePath.StartsWith("/api/", StringComparison.Ordinal)
+                        || barePath.Equals("/health", StringComparison.OrdinalIgnoreCase)
+                        || barePath.Equals("/announcement.json", StringComparison.OrdinalIgnoreCase)
+                        || barePath.StartsWith("/qr-", StringComparison.OrdinalIgnoreCase);
             if (!allowed)
             {
-                await WriteResponseAsync(stream, 404, Encoding.UTF8.GetBytes("{\"error\":\"not found\"}"), "application/json; charset=utf-8", origin);
+                await WriteResponseAsync(netStream!, 404, Encoding.UTF8.GetBytes("{\"error\":\"not found\"}"), "application/json; charset=utf-8", origin);
                 return;
             }
 
             if (method.Equals("OPTIONS", StringComparison.OrdinalIgnoreCase))
             {
-                await WriteResponseAsync(stream, 204, Array.Empty<byte>(), "text/plain; charset=utf-8", origin);
+                await WriteResponseAsync(netStream!, 204, Array.Empty<byte>(), "text/plain; charset=utf-8", origin, acrh);
                 return;
             }
 
             if (chunked)
             {
-                await WriteResponseAsync(stream, 411, Encoding.UTF8.GetBytes("{\"error\":\"chunked not supported\"}"), "application/json; charset=utf-8", origin);
+                await WriteResponseAsync(netStream!, 411, Encoding.UTF8.GetBytes("{\"error\":\"chunked not supported\"}"), "application/json; charset=utf-8", origin);
                 return;
             }
             if (contentLength < 0 || contentLength > MaxBodyBytes)
             {
-                await WriteResponseAsync(stream, 400, Encoding.UTF8.GetBytes("{\"error\":\"bad content-length\"}"), "application/json; charset=utf-8", origin);
+                await WriteResponseAsync(netStream!, 400, Encoding.UTF8.GetBytes("{\"error\":\"bad content-length\"}"), "application/json; charset=utf-8", origin);
                 return;
             }
 
@@ -126,7 +132,7 @@ public sealed class LocalProxy : IDisposable
                 int read = 0;
                 while (read < contentLength)
                 {
-                    int n = await stream.ReadAsync(body.AsMemory(read, contentLength - read));
+                    int n = await netStream!.ReadAsync(body.AsMemory(read, contentLength - read));
                     if (n <= 0) break;
                     read += n;
                 }
@@ -144,15 +150,15 @@ public sealed class LocalProxy : IDisposable
             using var res = await Http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, _cts.Token);
             byte[] respBody = res.Content == null ? Array.Empty<byte>() : await res.Content.ReadAsByteArrayAsync();
             string respType = res.Content?.Headers.ContentType?.ToString() ?? "application/json; charset=utf-8";
-            await WriteResponseAsync(stream, (int)res.StatusCode, respBody, respType, origin);
+            await WriteResponseAsync(netStream!, (int)res.StatusCode, respBody, respType, origin, acrh);
         }
         catch
         {
             /* 明确回 502，而不是静默断连（否则前端只看到网络错误） */
             try
             {
-                using var stream = client.GetStream();
-                await WriteResponseAsync(stream, 502, Encoding.UTF8.GetBytes("{\"error\":\"upstream unavailable\"}"), "application/json; charset=utf-8", null);
+                netStream ??= client.GetStream();
+                await WriteResponseAsync(netStream!, 502, Encoding.UTF8.GetBytes("{\"error\":\"upstream unavailable\"}"), "application/json; charset=utf-8", null);
             }
             catch { }
         }
@@ -162,7 +168,7 @@ public sealed class LocalProxy : IDisposable
         }
     }
 
-    private static async Task WriteResponseAsync(NetworkStream stream, int code, byte[] body, string contentType, string? origin)
+    private static async Task WriteResponseAsync(NetworkStream stream, int code, byte[] body, string contentType, string? origin, string? acrh = null)
     {
         string reason = code switch
         {
@@ -174,7 +180,7 @@ public sealed class LocalProxy : IDisposable
                       "Content-Type: " + contentType + "\r\n" +
                       "Access-Control-Allow-Origin: " + acao + "\r\n" +
                       "Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS" + "\r\n" +
-                      "Access-Control-Allow-Headers: Content-Type, Authorization" + "\r\n" +
+                      "Access-Control-Allow-Headers: " + (string.IsNullOrWhiteSpace(acrh) ? "Content-Type, Authorization" : acrh) + "\r\n" +
                       "Access-Control-Max-Age: 86400" + "\r\n" +
                       "Vary: Origin" + "\r\n" +
                       "Content-Length: " + body.Length + "\r\n" +

@@ -29,7 +29,7 @@ public class PetBrain
     private static readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(130) };
     private string _base = "";
     private string _key = "";
-    private string _model = "mini-max-m3";
+    private string _model = "MiniMax-M3";   /* 与前端 state.settings.model 默认值一致（OCR 二轮） */
     private bool _auto;
     private int _interval = 15;
     private Timer? _timer;

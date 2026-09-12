@@ -50,11 +50,13 @@ public partial class PetWindow : Window
                 "(function(){try{var o=JSON.parse(localStorage.getItem('elaina_settings')||'{}');window.chrome&&window.chrome.webview&&window.chrome.webview.postMessage({kind:'gateway',payload:o.baseUrl||''})}catch(e){}})()");
         }
         catch { }
+        ApplyPending();          /* 主窗若已先行注入，这里补应用（OCR 二轮 1） */
+        _ready.TrySetResult();
     }
 
     private void PositionDefault()
     {
-        var wa = SystemParameters.WorkArea;
+        var wa = ScreenHelper.WorkArea(this);   /* OCR M7：按窗口所在显示器工作区计算 */
         Left = wa.Right - Width - 10;
         Top = wa.Bottom - Height - 10;
     }
@@ -71,7 +73,7 @@ public partial class PetWindow : Window
             ct = (v2 ?? "").IndexOf("1", StringComparison.Ordinal) >= 0;
             Width = 360 * scale;
             Height = 520 * scale;
-            var wa = SystemParameters.WorkArea;
+            var wa = ScreenHelper.WorkArea(this);   /* OCR M7：按窗口所在显示器工作区计算 */
             Left = Math.Min(Left, wa.Right - Width - 4);
             Top = Math.Min(Top, wa.Bottom - Height - 4);
             SetClickthrough(ct);
@@ -151,13 +153,28 @@ public partial class PetWindow : Window
         catch { }
     }
 
-    /** 主窗把前端设置（网关/Key/模型/主动回复）注入桌宠大脑 */
+    /* 就绪门：WebView/大脑初始化是异步的，主窗可能在 _brain 赋值前就注入配置（OCR 二轮 1） */
+    private readonly TaskCompletionSource _ready = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private (string b, string k, string m, bool p, int i)? _pending;
+
+    /// <summary>等待桌宠大脑就绪</summary>
+    public Task EnsureReadyAsync() => _ready.Task;
+
+    /** 主窗把前端设置（网关/Key/模型/主动回复）注入桌宠大脑；未就绪则缓存待用 */
     public void ConfigureBrain(string baseUrl, string apiKey, string model, bool proactive, int intervalMinutes)
+    {
+        _pending = (baseUrl, apiKey, model, proactive, intervalMinutes);
+        if (!_ready.Task.IsCompleted) return;   /* 就绪后在 Loaded 收尾里补应用 */
+        ApplyPending();
+    }
+
+    private void ApplyPending()
     {
         try
         {
-            _brain?.Configure(baseUrl, apiKey, model);
-            _brain?.RestartProactive(proactive, intervalMinutes);
+            if (_pending is not { } q || _brain == null) return;
+            _brain.Configure(q.b, q.k, q.m);
+            _brain.RestartProactive(q.p, q.i);
         }
         catch { }
     }

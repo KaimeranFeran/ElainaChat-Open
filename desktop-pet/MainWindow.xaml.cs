@@ -39,7 +39,7 @@ public partial class MainWindow : Window
 
     private void PositionAtBottomRight()
     {
-        var wa = SystemParameters.WorkArea;
+        var wa = ScreenHelper.WorkArea(this);   /* OCR M7：按窗口所在显示器工作区计算 */
         Left = wa.Right - Width - 8;
         Top = wa.Bottom - Height - 8;
     }
@@ -155,6 +155,7 @@ public partial class MainWindow : Window
                 _petWindow = new PetWindow();
                 _petWindow.Closed += (_, _) => { _petWindow = null; };
                 _petWindow.Show();
+                await _petWindow.EnsureReadyAsync();   /* 等 WebView/大脑就绪，避免配置注入竞态（OCR 二轮 1） */
                 await SyncPetConfigFromWebAsync();   /* 关键：桌宠聊天/主动回复必须拿到前端的网关与 Key */
             }
             else
