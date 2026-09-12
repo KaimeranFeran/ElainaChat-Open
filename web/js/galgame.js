@@ -208,7 +208,19 @@
     let alpha = Number(V.get('alpha', '0.62')) || 0.62;
     layer.style.setProperty('--gg-alpha', String(alpha));
     let scale = Number(V.get('scale', '1')) || 1;
-    if (layer) layer.style.setProperty('--gg-scale', String(scale));   /* 由 CSS calc 消费，避免被 !important 覆盖（OCR S5） */
+    if (scale < 0.6) scale = 0.6;
+    if (scale > 1.6) scale = 1.6;
+    if (layer) layer.style.setProperty('--gg-scale', String(scale));
+    /* 立绘尺寸：内联 !important 直接生效（样式表里的 !important 覆盖不到内联 important） */
+    if (avatar) {
+      const isPhone = (window.matchMedia && window.matchMedia('(max-width: 560px)').matches);
+      const baseH = isPhone ? 118 : 100;
+      const baseW = isPhone ? 104 : 68;
+      try {
+        avatar.style.setProperty('max-height', (baseH * scale).toFixed(1) + '%', 'important');
+        avatar.style.setProperty('max-width', (baseW * scale).toFixed(1) + '%', 'important');
+      } catch (e) {}
+    }
     let sp = Number(V.get('speed', '24')) || 24;
   }
 
