@@ -254,7 +254,12 @@
     let i = 0;
     typeTimer = setInterval(function () {
       i += 2;
-      textEl.textContent = plain.slice(0, i);
+      /* OCR 视觉：打字机阶段同样渲染 Markdown/LaTeX，避免中途露出 # 标题与公式源码 */
+      const partial = plain.slice(0, i);
+      try {
+        const render = (typeof renderMessageText === 'function') ? renderMessageText : null;
+        textEl.innerHTML = render ? render(partial) : partial.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+      } catch (e) { textEl.textContent = partial; }
       if (i >= plain.length) { finishTyping(html); }
     }, Math.max(8, speed));
   }

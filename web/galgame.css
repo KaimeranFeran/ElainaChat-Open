@@ -73,7 +73,7 @@
 @media (max-width: 560px) {
   #ggMenu { flex-wrap: wrap; justify-content: flex-end; max-width: 62vw; }
   .gg-btn { height: 30px; padding: 0 8px; font-size: 11px; border-radius: 10px; }
-  #ggStage { bottom: 6px; }
+  #ggStage { bottom: 216px; }   /* 手机上让立绘停在对话框上方，避免只露头（OCR 视觉） */
   #ggAvatar { max-width: 104%; max-height: 118%; transform: translateY(9%); }
   #ggDialog { min-height: 132px; padding: 14px 16px 16px; border-radius: 18px; }
   #ggText { font-size: 15.5px; line-height: 1.75; max-height: 30vh; }
@@ -93,7 +93,7 @@
 
 /* ============ 手机端构图强制生效（末尾高特异性，避免被其他规则覆盖） ============ */
 @media (max-width: 560px) {
-  #galgameLayer #ggStage { bottom: 6px !important; }
+  #galgameLayer #ggStage { bottom: 216px !important; }
   #galgameLayer #ggAvatar {
     max-width: calc(104% * var(--gg-scale, 1)) !important;
     max-height: 118% !important;
