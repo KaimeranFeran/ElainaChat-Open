@@ -14,7 +14,7 @@
     set: function (k, v) { try { localStorage.setItem(GK + k, v); } catch (e) {} }
   };
   var EMO = ['smirk', 'shy', 'calm', 'surprised', 'resigned', 'speechless', 'angry', 'confused', 'happy'];
-  var layer = null, bg = null, avatar = null, nameEl = null, textEl = null, dialog = null, input = null, infoEl = null;
+  var layer = null, sceneEl = null, fxCanvas = null, avatar = null, nameEl = null, textEl = null, dialog = null, input = null, infoEl = null;
   var shownCount = 0;          // 已展示到对话框的消息条数
   var typeTimer = null, typing = false, lastMsgKey = '';
   var pollTimer = null;
@@ -57,7 +57,11 @@
     layer = document.createElement('div');
     layer.id = 'galgameLayer';
     layer.innerHTML =
-      '<div id="ggBg"></div><div id="ggBgMask"></div>' +
+      '<div id="ggScene" class="scene-dusk">' +
+        '<div class="sky"></div><div class="glow"></div><div class="clouds"></div>' +
+        '<div class="hill-far"></div><div class="hill-near"></div><div class="ground"></div>' +
+        '<canvas id="ggFx"></canvas><div class="vignette"></div>' +
+      '</div>' +
       '<div id="ggStage"><img id="ggAvatar" src="' + avatarSrc('calm') + '" alt="伊蕾娜"></div>' +
       '<div id="ggInfo">伊蕾娜 · 魔女之旅</div>' +
       '<div id="ggMenu">' +
@@ -72,14 +76,12 @@
       '<button id="ggSend" type="button">➤</button></div>' +
       '</div></div>';
     document.body.appendChild(layer);
-    bg = layer.querySelector('#ggBg');
     avatar = layer.querySelector('#ggAvatar');
     nameEl = layer.querySelector('#ggName');
     textEl = layer.querySelector('#ggText');
     dialog = layer.querySelector('#ggDialog');
     input = layer.querySelector('#ggInput');
     infoEl = layer.querySelector('#ggInfo');
-    bg.style.backgroundImage = 'url("' + avatarSrc('calm') + '")';
     applyOptions();
 
     /* 交互 */
@@ -99,8 +101,82 @@
     input.addEventListener('click', function (ev) { ev.stopPropagation(); });
     layer.querySelector('#ggInputRow').classList.add('show');
   }
+  var SCENES = ['dusk', 'night', 'rain', 'sakura'];
+  var FX_MODES = ['none', 'star', 'rain', 'petal'];
+  var fxParticles = [], fxRaf = null, fxMode = 'none';
+
+  /* ===== 粒子特效（星空 / 雨 / 樱花） ===== */
+  function fxInit(mode) {
+    fxMode = mode || 'none';
+    if (!fxCanvas) return;
+    if (fxRaf) { cancelAnimationFrame(fxRaf); fxRaf = null; }
+    fxParticles = [];
+    var ctx = fxCanvas.getContext('2d');
+    function resize() {
+      if (!fxCanvas) return;
+      fxCanvas.width = fxCanvas.clientWidth || window.innerWidth;
+      fxCanvas.height = fxCanvas.clientHeight || window.innerHeight;
+    }
+    resize();
+    window.addEventListener('resize', resize);
+    if (fxMode === 'none') { ctx.clearRect(0, 0, fxCanvas.width, fxCanvas.height); return; }
+    var W0 = fxCanvas.width, H0 = fxCanvas.height;
+    var count = fxMode === 'star' ? 140 : fxMode === 'rain' ? 180 : 60;
+    for (var i = 0; i < count; i++) {
+      fxParticles.push({
+        x: Math.random() * W0,
+        y: Math.random() * H0,
+        r: fxMode === 'petal' ? 4 + Math.random() * 5 : fxMode === 'rain' ? 1 : 0.6 + Math.random() * 1.6,
+        vx: fxMode === 'petal' ? -0.5 - Math.random() * 0.6 : fxMode === 'rain' ? -0.6 : 0,
+        vy: fxMode === 'petal' ? 0.5 + Math.random() * 0.7 : fxMode === 'rain' ? 8 + Math.random() * 6 : 0,
+        a: fxMode === 'star' ? 0.35 + Math.random() * 0.65 : 0.5 + Math.random() * 0.4,
+        tw: Math.random() * Math.PI * 2,
+        hue: fxMode === 'petal' ? 340 + Math.random() * 20 : 0
+      });
+    }
+    function frame() {
+      if (!fxCanvas) return;
+      var ctx2 = fxCanvas.getContext('2d');
+      var w = fxCanvas.width, h = fxCanvas.height;
+      ctx2.clearRect(0, 0, w, h);
+      fxParticles.forEach(function (p) {
+        p.x += p.vx; p.y += p.vy; p.tw += 0.05;
+        if (fxMode === 'rain') {
+          ctx2.strokeStyle = 'rgba(190,215,255,' + (p.a * 0.55) + ')';
+          ctx2.lineWidth = p.r;
+          ctx2.beginPath(); ctx2.moveTo(p.x, p.y); ctx2.lineTo(p.x + p.vx * 1.6, p.y + p.vy * 0.6); ctx2.stroke();
+        } else if (fxMode === 'petal') {
+          ctx2.fillStyle = 'hsla(' + p.hue + ',85%,82%,' + p.a + ')';
+          ctx2.beginPath(); ctx2.ellipse(p.x, p.y, p.r, p.r * 0.62, p.tw, 0, Math.PI * 2); ctx2.fill();
+        } else {
+          var al = p.a * (0.6 + 0.4 * Math.sin(p.tw));
+          ctx2.fillStyle = 'rgba(255,255,255,' + al + ')';
+          ctx2.beginPath(); ctx2.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx2.fill();
+        }
+        if (p.y > h + 20) p.y = -20, p.x = Math.random() * w;
+        if (p.y < -20 && fxMode === 'rain') p.y = h + 20;
+        if (p.x < -20) p.x = w + 20;
+      });
+      fxRaf = requestAnimationFrame(frame);
+    }
+    frame();
+  }
+
   function applyOptions() {
     if (!layer) return;
+    /* 场景背景 */
+    sceneEl = layer.querySelector('#ggScene');
+    if (sceneEl) {
+      var sc = V.get('scene', 'dusk');
+      if (SCENES.indexOf(sc) < 0) sc = 'dusk';
+      SCENES.forEach(function (s) { sceneEl.classList.toggle('scene-' + s, s === sc); });
+    }
+    /* 粒子特效 */
+    fxCanvas = layer.querySelector('#ggFx');
+    var fx = V.get('fx', 'auto');
+    if (fx === 'auto') fx = { dusk: 'none', night: 'star', rain: 'rain', sakura: 'petal' }[V.get('scene', 'dusk')] || 'none';
+    if (FX_MODES.indexOf(fx) < 0) fx = 'none';
+    fxInit(fx);
     var alpha = Number(V.get('alpha', '0.62')) || 0.62;
     layer.style.setProperty('--gg-alpha', String(alpha));
     var scale = Number(V.get('scale', '1')) || 1;
