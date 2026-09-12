@@ -20,6 +20,15 @@
     try {
       let st = JSON.parse(localStorage.getItem('elaina_settings') || '{}');
       let gw = window.__PC_DEFAULT_GW || '';
+      /* OCR GW-MIGRATE：旧域名 → 新 IP 一次性迁移（https 域名在部分 WebView 不可用） */
+      try {
+        const OLD_HOSTS = ['https://elainachat.j3.ink', 'http://elainachat.j3.ink'];
+        if (st.baseUrl && OLD_HOSTS.indexOf(String(st.baseUrl).replace(/\/+$/, '')) >= 0) {
+          st.baseUrl = 'http://106.14.16.68';
+          localStorage.setItem('elaina_settings', JSON.stringify(st));
+          if (typeof state !== 'undefined' && state.settings) state.settings.baseUrl = st.baseUrl;
+        }
+      } catch (e) {}
       function write(v) {
         if (!v || st.baseUrl) return;
         st.baseUrl = v;

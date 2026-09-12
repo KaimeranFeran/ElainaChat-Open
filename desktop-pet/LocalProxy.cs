@@ -26,7 +26,7 @@ public sealed class LocalProxy : IDisposable
     };
     private const int MaxBodyBytes = 32 * 1024 * 1024;
 
-    public string BaseUrl { get; set; } = "https://elainachat.j3.ink";
+    public string BaseUrl { get; set; } = "http://106.14.16.68";
 
     private readonly TcpListener _listener;
     private readonly CancellationTokenSource _cts = new();
@@ -139,7 +139,7 @@ public sealed class LocalProxy : IDisposable
             }
 
             var target = (BaseUrl ?? "").Trim().TrimEnd('/');
-            if (target.Length == 0) target = "https://elainachat.j3.ink";
+            if (target.Length == 0) target = "http://106.14.16.68";
             using var req = new HttpRequestMessage(new HttpMethod(method), target + path);
             if (!string.IsNullOrWhiteSpace(authorization)) req.Headers.TryAddWithoutValidation("Authorization", authorization);
             if (body.Length > 0)
