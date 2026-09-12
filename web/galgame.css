@@ -2,7 +2,7 @@
    ElainaChat · Galgame 界面（参考 LingChat：背景 + 立绘舞台 + 底部对话框 + 角落菜单）
    默认关闭；由设置「Galgame」段或界面内退出按钮控制
    ============================================================ */
-#galgameLayer { position: fixed; inset: 0; z-index: 900;   /* 低于 customModal(1000)/会话移动层(1000)，避免遮挡弹窗（OCR S6） */ display: none; overflow: hidden; font-family: "Outfit","PingFang SC","Microsoft YaHei",sans-serif; }
+#galgameLayer { position: fixed; inset: 0; z-index: 45;   /* 高于 sidebar/floatingMic(40)，低于一切弹窗(50+) —— OCR 二轮 S6 实测 */
 #galgameLayer.on { display: block; }
 
 /* 场景背景由真实图片承担（img/bg/*.jpg，#ggScene > .bgA/.bgB），旧 CSS 分层场景段已删除（OCR M5） */
@@ -104,5 +104,11 @@
 /* 桌面端构图（同样强制一次，保证头脚都在画面内且脚贴对话框） */
 @media (min-width: 561px) {
   #galgameLayer #ggStage { bottom: 0 !important; }
-  #galgameLayer #ggAvatar { max-height: 100% !important; max-width: calc(68% * var(--gg-scale, 1)) !important; transform: translateY(7%) !important; object-position: bottom center !important; }
+  #galgameLayer #ggAvatar { max-height: calc(100% * var(--gg-scale, 1)) !important; max-width: calc(68% * var(--gg-scale, 1)) !important; transform: translateY(7%) !important; object-position: bottom center !important; }
 }
+
+/* OCR 二轮 N5：呼吸动画的 keyframes 原本只在 pet.css（主界面不加载该文件），这里补一份 */
+@keyframes pet-breathe { 0%, 100% { transform: translateY(7%) scale(1); } 50% { transform: translateY(6%) scale(1.006); } }
+@keyframes pet-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-4px); } }
+/* OCR 二轮 N4：旧场景段删除后 vignette 变成无样式，补回四周压暗 */
+#ggScene .vignette { position: absolute; inset: 0; background: radial-gradient(ellipse at 50% 38%, transparent 42%, rgba(4,6,12,.62) 100%); pointer-events: none; }

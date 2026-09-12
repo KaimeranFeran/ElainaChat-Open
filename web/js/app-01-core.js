@@ -868,7 +868,10 @@ ${memoryBlock}
             }
             const repetitionRetryPrompt = buildRoleplayRepetitionRetryPrompt(options);
             if (repetitionRetryPrompt) messages.push({ role: 'system', content: repetitionRetryPrompt });
-            messages.push({ role: 'system', content: ROLEPLAY_TURN_ANCHOR });
+            /* OCR 二轮 B：场景指令必须无条件注入（此前挂在用户身份设定里，身份为空时整条丢失） */
+        const sceneHint = (typeof window !== 'undefined' && window.__galgameSceneHint) ? String(window.__galgameSceneHint) : '';
+        if (sceneHint) messages.push({ role: 'system', content: sceneHint });
+        messages.push({ role: 'system', content: ROLEPLAY_TURN_ANCHOR });
             messages.push(...getRecentHistoryMessages(text));
             const userText = String(text || '').trim();
             const userContent = imageDataUrl ? [

@@ -113,8 +113,16 @@
 
         /* ---- Markdown + LaTeX 渲染（消息正文） ---- */
         function renderMessageText(text) {
-            /* 剥离 AI 场景标记（<scene>xxx</scene>），仅内部使用，不展示给用户 */
-            const raw = String(text || '').replace(/^[ \t]*<scene>[^<\n]{0,64}<\/scene>[ \t]*$/gim, '').trim();
+            /* OCR 二轮 C：先挖出三反引号围栏再剥独占行场景标记，避免删掉示例代码块 */
+            const FENCE = String.fromCharCode(96, 96, 96);
+            const PH0 = String.fromCharCode(0xE100), PH1 = String.fromCharCode(0xE101);
+            const fences = [];
+            let raw = String(text || '').replace(new RegExp(FENCE + '[\\s\\S]*?' + FENCE, 'g'), (m) => {
+                fences.push(m);
+                return PH0 + (fences.length - 1) + PH1;
+            });
+            raw = raw.replace(/^[ \t]*<scene>[^<\n]{0,64}<\/scene>[ \t]*$/gim, '').trim();
+            raw = raw.replace(new RegExp(PH0 + '(\\d+)' + PH1, 'g'), (m, i) => fences[Number(i)] || '');
             const hasMd = /(^|\n)\s*(#{1,6}\s|[-*+]\s|>\s|\u0060\u0060\u0060|---|\d+\.\s)|(\*\*[^*]+\*\*|\u0060[^\u0060]+\u0060|\[[^\]]+\]\([^)]+\))|(\$\$|(?:^|[^\\])\$[^$\n]{1,200}\$)/.test(raw);
             const mdObj = window.marked;
             const mdParse = (typeof mdObj === 'function') ? mdObj : (mdObj && typeof mdObj.parse === 'function') ? mdObj.parse.bind(mdObj) : null;

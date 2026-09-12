@@ -35,6 +35,9 @@ public class ElainaPetBridge {
     private final Runnable onEndDrag;
     private final java.util.function.Consumer<Boolean> onInputFocus;
     private volatile String model = "mini-max-m3";
+    private volatile boolean destroyed = false;   /* OCR 二轮 N7：服务销毁后不再回调已 destroy 的 WebView */
+
+    public void release() { destroyed = true; }
 
     public ElainaPetBridge(WebView webView, Runnable onOpenApp) {
         this(webView, onOpenApp, null, null, null);
@@ -133,7 +136,7 @@ public class ElainaPetBridge {
                 usr.put("content", userText);
                 msgs.put(usr);
                 JSONObject body = new JSONObject();
-                body.put("model", "mini-max-m3");
+                body.put("model", model);   /* OCR 二轮 N6：用户在主界面换模型对桌宠同样生效 */
                 body.put("messages", msgs);
 
                 HttpURLConnection conn = (HttpURLConnection) new URL(baseUrl + "/api/chat/completions").openConnection();
@@ -171,7 +174,9 @@ public class ElainaPetBridge {
     }
 
     private void postToWeb(final String text) {
+        if (destroyed) return;
         new Handler(Looper.getMainLooper()).post(() -> {
+            if (destroyed) return;
             webView.evaluateJavascript("window.PetOnReply && window.PetOnReply(" + JSONObject.quote(text) + ")", null);
         });
     }

@@ -7,10 +7,9 @@
   let typeTimer = null;
 
   /* ===== 伊蕾娜表情系统（回复情绪词 → 切换立绘） ===== */
-  let EMOTIONS = {
-    smirk: '坏笑', shy: '害羞', calm: '平静', surprised: '惊讶', resigned: '无奈',
-    speechless: '无语', angry: '生气', confused: '疑惑', happy: '高兴'
-  };
+  let EMOTIONS = (window.ElainaEmotion && window.ElainaEmotion.labels)
+    ? window.ElainaEmotion.labels()
+    : { calm: '平静' };
   let avatar = document.getElementById('petAvatar');
   let emoTimer = null;
   function setEmotion(key) {
@@ -89,23 +88,18 @@
   }
   window.PetShowTip = showTip;
 
-  /* 拖拽条 → 原生拖窗 */
-  let strip = document.getElementById('dragStrip');
-  let moved = false;
-  strip.addEventListener('touchmove', function (ev) {
-    /* 移动超过阈值交给原生拖动 */
-  }, { passive: true });
-  strip.addEventListener('touchstart', function () { moved = false; }, { passive: true });
-  strip.addEventListener('touchend', function () { setTimeout(function(){ if (!moved) notifyDrag(); }, 50); });
-  strip.addEventListener('mousedown', function () { moved = false; });
-  strip.addEventListener('mouseup', function () { setTimeout(function(){ if (!moved) notifyDrag(); }, 50); });
-  function notifyDrag() {
-    try {
-      if (window.PetBridge && window.PetBridge.startDrag) window.PetBridge.startDrag();
-      else if (window.chrome && window.chrome.webview) window.chrome.webview.postMessage({ kind: 'drag' });
-    } catch (e) {}
-  }
-  strip.addEventListener('contextmenu', function (ev) { ev.preventDefault(); });
+  /* PC 拖拽（仅无 PetBridge 时生效，避免与安卓桥双绑定 —— OCR 二轮 N1） */
+  (function bindPcDrag() {
+    if (window.PetBridge && typeof window.PetBridge.startDrag === 'function') return;
+    const strip = document.getElementById('dragStrip');
+    if (!strip) return;
+    const notify = function () {
+      try { if (window.chrome && window.chrome.webview) window.chrome.webview.postMessage({ kind: 'drag' }); } catch (e) {}
+    };
+    strip.addEventListener('mouseup', notify);
+    strip.addEventListener('touchend', function (ev) { ev.preventDefault(); notify(); }, { passive: false });
+    strip.addEventListener('contextmenu', function (ev) { ev.preventDefault(); });
+  })();
 
   /* ===== 安卓悬浮窗：输入焦点 + 拖拽桥接 ===== */
   try {

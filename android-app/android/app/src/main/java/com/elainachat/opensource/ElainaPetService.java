@@ -46,6 +46,13 @@ public class ElainaPetService extends Service {
     @Override
     public void onCreate() {
         super.onCreate();
+        /* OCR 二轮 N3：未开启桌宠时不建前台通知（无障碍重连会无条件拉起本服务） */
+        try {
+            if (!getSharedPreferences("elaina_pet", MODE_PRIVATE).getBoolean("enabled", false)) {
+                stopSelf();
+                return;
+            }
+        } catch (Throwable ignored) { }
         instance = this;
         startForegroundCompat();
     }
@@ -133,6 +140,55 @@ public class ElainaPetService extends Service {
             petView.setBackgroundColor(Color.TRANSPARENT);
             petView.setOverScrollMode(View.OVER_SCROLL_NEVER);
 
+            /* 安全：导航白名单 —— file:///android_asset/... 的 authority 为空，android_asset 在 path 上（OCR 二轮 1） */
+            petView.setWebViewClient(new android.webkit.WebViewClient() {
+                @Override
+                public boolean shouldOverrideUrlLoading(WebView view, android.webkit.WebResourceRequest request) {
+                    android.net.Uri u = request.getUrl();
+                    String scheme = u == null ? "" : u.getScheme();
+                    String path = u == null ? "" : u.getPath();
+                    boolean local = "file".equals(scheme) && path != null && path.startsWith("/android_asset/");
+                    if (local) return false;
+                    if (!request.isForMainFrame()) return true;            /* 子框架一律不外跳，避免钓鱼 */
+                    if ("http".equals(scheme) || "https".equals(scheme)) {
+                        try {
+                            Intent i = new Intent(Intent.ACTION_VIEW, u);
+                            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                            startActivity(i);
+                        } catch (Exception ignored) { }
+                    }
+                    return true;
+                }
+            });
+            petView.setWebChromeClient(new android.webkit.WebChromeClient() {
+                @Override
+                public void onPermissionRequest(final android.webkit.PermissionRequest request) {
+                    /* 安全：只对本地 asset 页面授予录音；且必须已获得系统 RECORD_AUDIO 权限 */
+                    /* OCR 二轮 2：file:// 页面的 origin 是 "file://"（host 为空），不能用 host 判 asset */
+                    boolean localOrigin = false;
+                    try {
+                        android.net.Uri o = request.getOrigin();
+                        localOrigin = o != null && "file".equals(o.getScheme());
+                    } catch (Throwable ignored) { }
+                    boolean micGranted = checkSelfPermission(android.Manifest.permission.RECORD_AUDIO)
+                            == android.content.pm.PackageManager.PERMISSION_GRANTED;
+                    for (String res : request.getResources()) {
+                        if (android.webkit.PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(res)) {
+                            if (localOrigin && micGranted) request.grant(new String[]{ res });
+                            else {
+                                request.deny();
+                                if (petView != null) petView.post(() -> {
+                                    try {
+                                        petView.evaluateJavascript("window.PetShowTip && window.PetShowTip('麦克风不可用：请先回主界面用一次语音输入完成授权')", null);
+                                    } catch (Throwable ignored) { }
+                                });
+                            }
+                            return;
+                        }
+                    }
+                    request.deny();
+                }
+            });
             bridge = new ElainaPetBridge(petView, () -> {
                 try {
                     Intent ai = new Intent(this, MainActivity.class);
@@ -154,13 +210,18 @@ public class ElainaPetService extends Service {
                         return false;   /* 不消费 DOWN，保证 WebView 内部点击/输入正常 */
                     case MotionEvent.ACTION_MOVE:
                         if (!dragging) return false;   /* 仅前端拖拽条激活时拖动窗口 */
-                        lp.x = (int) (lp.x + (event.getRawX() - lastTouchX));
+                        /* gravity=TOP|RIGHT：x 是距右边缘距离，手指右移(x 增大)应使窗口左移 → 取负号（OCR 二轮 N1） */
+                        lp.x = (int) (lp.x - (event.getRawX() - lastTouchX));
                         lp.y = (int) (lp.y + (event.getRawY() - lastTouchY));
                         lastTouchX = event.getRawX();
                         lastTouchY = event.getRawY();
                         clampToScreen(lp);
                         if (windowManager != null && petView != null) windowManager.updateViewLayout(petView, lp);
                         return true;
+                    case MotionEvent.ACTION_UP:
+                    case MotionEvent.ACTION_CANCEL:
+                        dragging = false;   /* JS 漏发 endDrag 时自愈（OCR 二轮 N2） */
+                        return false;
                     default:
                         return false;
                 }
@@ -176,13 +237,28 @@ public class ElainaPetService extends Service {
     private volatile boolean dragging = false;
 
     /** 输入焦点切换：悬浮窗默认 NOT_FOCUSABLE，输入框聚焦时需临时恢复焦点才能弹软键盘 */
-    private void setInputFocus(boolean focused) {
-        try {
-            if (petParams == null) return;
-            if (focused) petParams.flags &= ~WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
-            else petParams.flags |= WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
-            if (windowManager != null && petView != null) windowManager.updateViewLayout(petView, petParams);
-        } catch (Throwable ignored) { }
+    private void setInputFocus(final boolean focused) {
+        /* OCR 二轮 5：JS 桥回调在后台线程，updateViewLayout 必须回主线程，否则抛 CalledFromWrongThreadException 并被吞 */
+        handler.post(() -> {
+            try {
+                if (petParams == null || petView == null || windowManager == null) return;
+                if (focused) {
+                    petParams.flags &= ~WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
+                    petParams.flags |= WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL;
+                    petParams.softInputMode = WindowManager.LayoutParams.SOFT_INPUT_STATE_UNCHANGED
+                            | WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE;
+                } else {
+                    petParams.flags |= WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
+                }
+                windowManager.updateViewLayout(petView, petParams);
+                if (focused) {
+                    petView.requestFocus();
+                    android.view.inputmethod.InputMethodManager imm = (android.view.inputmethod.InputMethodManager)
+                            getSystemService(Context.INPUT_METHOD_SERVICE);
+                    if (imm != null) imm.showSoftInput(petView, 0);
+                }
+            } catch (Throwable ignored) { }
+        });
     }
     private int dp(int v) { return (int) (v * getResources().getDisplayMetrics().density + 0.5f); }
 
@@ -226,6 +302,7 @@ public class ElainaPetService extends Service {
     public void onDestroy() {
         handler.removeCallbacksAndMessages(null);
         try {
+            try { if (bridge != null) bridge.release(); } catch (Throwable ignored) { }   /* OCR 二轮 N7 */
             if (petView != null) {
                 try { petView.stopLoading(); } catch (Exception ignored) { }
                 try { petView.loadUrl("about:blank"); } catch (Exception ignored) { }

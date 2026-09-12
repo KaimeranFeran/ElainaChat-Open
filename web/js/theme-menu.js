@@ -565,7 +565,12 @@
       }
     };
     const pressEnd = () => {
+      /* OCR 二轮 N2-end：先取出目标值并彻底复位，再执行跳转，避免过期 msgId/ratio 误跳转 */
+      const _c = card, _r = ratio, _id = msgId;
+      try { resetSeek(false); card = _c; wf = null; msgId = _id; ratio = _r; } catch (e) {}
+
       if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
+      /* OCR 二轮 N2：先复位再执行跳转，避免用过期的 msgId/ratio 误跳转 */
       if (!seeking || !card) { if (pressTimer === null) suppressed = false; return; }
       const c = card;
       card = null; seeking = false;
@@ -583,8 +588,15 @@
       setTimeout(() => { c.classList.remove('voice-zoomed'); }, 1300);
       setTimeout(() => { suppressed = false; }, 200);
     };
-    const pressCancel = () => { if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; } window.__voiceSeeking = false; };
-    let lastTouchTs = 0;
+    /* OCR 二轮 N2：取消路径必须彻底复位（seeking/card/wf/ratio/zoom），否则 seeking 永久为 true */
+    const resetSeek = (dropRefs) => {
+      if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
+      if (dropRefs && typeof card !== 'undefined' && card) { try { card.classList.remove('voice-zoomed'); } catch (e) {} }
+      if (dropRefs) { try { card = null; wf = null; msgId = null; ratio = 0; } catch (e) {} }
+      try { seeking = false; window.__voiceSeeking = false; } catch (e) {}
+    };
+    const pressCancel = () => { resetSeek(true); };
+
     const onTouchStart = (ev) => { lastTouchTs = Date.now(); pressStart(ev, ev.target); };
     const onMouseDown = (ev) => { if (Date.now() - lastTouchTs < 500) return; pressStart(ev, ev.target); };
     document.addEventListener('touchstart', onTouchStart, { passive: true });

@@ -4,5 +4,5 @@
     <string name="title_activity_main">ElainaChat Open</string>
     <string name="package_name">com.elainachat.opensource</string>
     <string name="custom_url_scheme">com.elainachat.opensource</string>
-    <string name="elaina_pet_accessibility_desc">用于读取当前界面文字，让桌宠感知并主动与你聊天（内容仅本地处理，不会上传界面私有信息）。</string>
+    <string name="elaina_pet_accessibility_desc">用于在你开启「主动回复」时读取当前界面文字，让桌宠理解你的使用场景并主动搭话。读取到的文字会发送到你自己配置的对话服务地址用于生成回复，不会发送给开发者或任何第三方，也不会用于广告。可随时在设置中关闭，关闭后立即停止读取并清空缓存。</string>
 </resources>

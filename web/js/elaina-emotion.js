@@ -17,6 +17,10 @@
       for (const [k, re] of KEY) { if (re.test(t)) return k; }
       return null;
     },
-    list() { return KEY.map(k => k[0]); }
+    list() { return KEY.map(k => k[0]); },
+    labels() {
+      return { smirk: '坏笑', shy: '害羞', calm: '平静', surprised: '惊讶', resigned: '无奈',
+               speechless: '无语', angry: '生气', confused: '疑惑', happy: '高兴' };
+    }
   };
 })();

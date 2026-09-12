@@ -331,6 +331,10 @@
         }
 
         function sanitizeTtsText(text, stripKana = false) {
+    /* OCR 二轮 E：朗读文本一律先剥场景标记（日语翻译源/时长估算/TTS 缓存 key 全覆盖） */
+    if (typeof text === 'string' && /<\/?scene>/i.test(text)) {
+        text = text.replace(/<scene>[\s\S]*?<\/scene>/gi, ' ').replace(/<\/?scene>/gi, ' ').replace(/\s{2,}/g, ' ').trim();
+    }
             let t = String(text || '').trim();
 
             // Parenthesized/bracketed passages are stage directions for display only.
