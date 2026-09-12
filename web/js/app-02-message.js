@@ -23,6 +23,11 @@
         function removeThinkingMessage() {
             const el = document.getElementById('thinking-bubble');
             if (el) {
+                if (document.documentElement.classList.contains('android-webview')) {
+                    el.remove();
+                    state.thinkingMessageId = null;
+                    return;
+                }
                 el.style.transition = 'opacity 0.2s ease-out, transform 0.2s ease-out';
                 el.style.opacity = '0';
                 el.style.transform = 'translateY(-4px)';
@@ -303,6 +308,19 @@
             return task;
         }
 
+        function scrollConversationToBottom() {
+            const scroller = elements.conversationHistory;
+            if (!scroller) return;
+            const scroll = () => {
+                if (elements.conversationHistory !== scroller) return;
+                scroller.scrollTop = scroller.scrollHeight;
+            };
+            scroll();
+            requestAnimationFrame(scroll);
+            window.setTimeout(scroll, 80);
+            window.setTimeout(scroll, 240);
+        }
+
         function renderMessage(message, options = {}) {
             const shouldMount = options.mount !== false;
             const shouldAnimate = options.animate !== false;
@@ -328,6 +346,10 @@
                                             <path stroke-linecap="round" stroke-linejoin="round" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"/>
                                         </svg>
                                         <span class="text-xs font-medium">${faved ? '已收藏' : '收藏'}</span>
+                                    </button>
+                                    <button onclick="event.stopPropagation(); openMessageContextMenu('${message.id}', document.getElementById('msg-${message.id}'))"
+                                            class="message-action-btn message-more-btn p-1.5 rounded-lg transition-all" type="button" title="更多消息操作" aria-label="更多消息操作">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><circle cx="5" cy="12" r="1.2" fill="currentColor"/><circle cx="12" cy="12" r="1.2" fill="currentColor"/><circle cx="19" cy="12" r="1.2" fill="currentColor"/></svg>
                                     </button>
                                 </div>
                                 ${userImageUrl ? `<img class="message-image" src="${userImageUrl}" alt="${escapeHtml(message.imageName || '用户发送的图片')}" loading="lazy" decoding="async">` : ''}
@@ -369,6 +391,10 @@
                                         </svg>
                                         <span class="text-xs font-medium">${faved ? '已收藏' : '收藏'}</span>
                                     </button>
+                                    <button onclick="event.stopPropagation(); openMessageContextMenu('${message.id}', document.getElementById('msg-${message.id}'))"
+                                            class="message-action-btn message-more-btn p-1.5 rounded-lg transition-all" type="button" title="更多消息操作" aria-label="更多消息操作">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><circle cx="5" cy="12" r="1.2" fill="currentColor"/><circle cx="12" cy="12" r="1.2" fill="currentColor"/><circle cx="19" cy="12" r="1.2" fill="currentColor"/></svg>
+                                    </button>
                                 </div>
                                 <div class="msg-text">${renderMessageText(message.text)}</div>
                                 ${voiceCard}
@@ -379,7 +405,7 @@
             }
             if (shouldMount) {
                 elements.conversationHistory.appendChild(div);
-                elements.conversationHistory.scrollTop = elements.conversationHistory.scrollHeight;
+                scrollConversationToBottom();
             }
 
             // 附加多选标记圆点
@@ -1334,6 +1360,8 @@
                 };
 
                 const presentationMode = state.settings.replyDisplayMode || DEFAULT_SETTINGS.replyDisplayMode;
+                const androidTextFirst = document.documentElement.classList.contains('android-webview');
+                const waitForVoiceToCommit = presentationMode === 'simultaneous' && !androidTextFirst;
                 let voiceStarted = false;
                 let messageCommitted = false;
                 const commitAiMessageOnce = () => {
@@ -1366,11 +1394,11 @@
 
                 const handleVoiceStart = () => {
                     voiceStarted = true;
-                    if (presentationMode === 'simultaneous') commitAiMessageOnce();
+                    if (waitForVoiceToCommit) commitAiMessageOnce();
                     markVoicePlaybackStarted(aiMessage.id, estimateVoiceDurationSeconds(textToSpeak));
                 };
 
-                if (presentationMode === 'text-first') commitAiMessageOnce();
+                if (!waitForVoiceToCommit) commitAiMessageOnce();
 
                 // Text-first mode commits above; Japanese preparation continues without
                 // delaying the visible reply. Persist the late voice text for replay.
@@ -1379,7 +1407,7 @@
 
                 if (!textToSpeak) {
                     pendingAutomaticVoiceMessageIds.delete(automaticVoiceMessageKey);
-                    if (presentationMode === 'simultaneous') {
+                    if (waitForVoiceToCommit) {
                         removeThinkingMessage();
                         state.voiceState = 'error';
                         updateUI();
@@ -1393,7 +1421,7 @@
                 }).then(result => {
                     if (result?.cancelled) return;
                     if (!voiceStarted) {
-                        if (presentationMode === 'simultaneous') {
+                        if (waitForVoiceToCommit) {
                             console.warn('[TTS] 没有收到可播放语音，同步模式不展示本次回复');
                             removeThinkingMessage();
                             state.voiceState = 'error';
@@ -1409,12 +1437,12 @@
                 }).catch(error => {
                     if (isVoiceCancellation(error)) return;
                     console.error('[TTS] 自动语音播放失败:', error);
-                    if (!voiceStarted && presentationMode === 'simultaneous') {
+                    if (!voiceStarted && waitForVoiceToCommit) {
                         removeThinkingMessage();
                         state.voiceState = 'error';
                         updateUI();
                     }
-                    if (presentationMode === 'text-first') {
+                    if (!waitForVoiceToCommit) {
                         setVoicePlaybackState(aiMessage.id, false);
                         state.voiceState = 'idle';
                         updateUI();

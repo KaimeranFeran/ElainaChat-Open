@@ -3,6 +3,14 @@
 <head>
     <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content">
+    <script>
+        (function () {
+            var userAgent = navigator.userAgent || '';
+            if (/\bAndroid\b/i.test(userAgent)) {
+                document.documentElement.classList.add('android-webview');
+            }
+        })();
+    </script>
     <title>ElainaChat · 伊蕾娜</title>
     <link rel="stylesheet" href="/vendor/katex/katex.min.css">
     <script src="/vendor/marked/marked.min.js"></script>
@@ -215,7 +223,7 @@
                             </div>
                         </div>
                         <div id="initialComposerImagePreview" class="composer-image-preview hidden"></div>
-                        <input id="initialTextInput" autocomplete="off" type="text" readonly onfocus="this.removeAttribute('readonly')" placeholder="和伊蕾娜说点什么..." class="flex-1 bg-transparent outline-none text-sm text-indigo-950 py-2" onkeydown="if(event.key==='Enter') handleInitialTextSubmit()">
+                        <input id="initialTextInput" autocomplete="off" inputmode="text" enterkeyhint="send" type="text" placeholder="和伊蕾娜说点什么..." class="flex-1 bg-transparent outline-none text-sm text-indigo-950 py-2" onkeydown="if(event.key==='Enter') handleInitialTextSubmit()">
                         <button onclick="handleMicClick()" class="initial-conversation-mic-btn mic-btn rounded-full flex items-center justify-center" title="语音输入" aria-label="语音输入">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z"/></svg>
                         </button>
@@ -373,7 +381,7 @@
                             </div>
                     </div>
                     <div id="composerImagePreview" class="composer-image-preview hidden"></div>
-                    <input id="textInput" autocomplete="off" type="text" readonly onfocus="this.removeAttribute('readonly')" placeholder="和伊蕾娜说点什么...（Enter 发送）" class="flex-1 text-sm" onkeydown="if(event.key==='Enter') handleTextSubmit()">
+                    <input id="textInput" autocomplete="off" inputmode="text" enterkeyhint="send" type="text" placeholder="和伊蕾娜说点什么...（Enter 发送）" class="flex-1 text-sm" onkeydown="if(event.key==='Enter') handleTextSubmit()">
                     <button onclick="handleMicClick()" class="conversation-mic-btn mic-btn rounded-full flex items-center justify-center" title="语音输入" aria-label="语音输入">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z"/></svg>
                     </button>

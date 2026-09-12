@@ -1,6 +1,8 @@
 * { margin: 0; padding: 0; box-sizing: border-box; }
 html, body { width: 100%; height: 100%; overflow: hidden; background: transparent; font-family: "Outfit", "PingFang SC", "Microsoft YaHei", sans-serif; }
-#stage { position: relative; width: 100%; height: 100%; display: flex; flex-direction: column; }
+#stage { position: relative; width: 100%; height: 100%; display: flex; flex-direction: column;
+  /* 近乎透明的命中板，确保桌宠窗口不会把输入点击交给后面的应用。 */
+  background: rgba(0, 0, 0, 0.001); }
 
 /* 拖拽条 */
 #dragStrip { position: absolute; top: 0; left: 10px; right: 10px; height: 22px; z-index: 40; cursor: grab; -webkit-user-select: none;

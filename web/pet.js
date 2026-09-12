@@ -103,6 +103,23 @@
 
   /* ===== 安卓悬浮窗：输入焦点 + 拖拽桥接 ===== */
   try {
+    const notifyPcInputFocus = function (focused) {
+      try {
+        if (window.chrome && window.chrome.webview) {
+          window.chrome.webview.postMessage({ kind: 'input-focus', payload: !!focused });
+        }
+      } catch (e) {}
+    };
+    if (inputEl) {
+      inputEl.addEventListener('focus', function () { notifyPcInputFocus(true); });
+      inputEl.addEventListener('blur', function () { notifyPcInputFocus(false); });
+    }
+    if (inputEl && window.PetBridge) {
+      if (typeof window.PetBridge.setInputFocus === 'function') {
+        inputEl.addEventListener('focus', function () { try { window.PetBridge.setInputFocus(true); } catch (e) {} });
+        inputEl.addEventListener('blur', function () { try { window.PetBridge.setInputFocus(false); } catch (e) {} });
+      }
+    }
     const inputEl = document.getElementById('petInput');
     if (inputEl && window.PetBridge) {
       if (typeof window.PetBridge.setInputFocus === 'function') {

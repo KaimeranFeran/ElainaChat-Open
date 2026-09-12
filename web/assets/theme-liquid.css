@@ -2051,3 +2051,72 @@ html[data-theme="dark"] .sw-perm-btn {
 @media (max-width: 560px) {
   .sw-perm-btn { flex: 1 1 44% !important; min-height: 38px !important; font-size: 13px !important; }
 }
+
+/* Android System WebView compatibility: avoid unsupported/expensive compositing on modal open. */
+html.android-webview,
+html.android-webview body {
+  background-attachment: scroll !important;
+}
+html.android-webview .aurora-orb {
+  display: none !important;
+  animation: none !important;
+}
+html.android-webview .glass-panel,
+html.android-webview .liquid-glass,
+html.android-webview .modal-panel,
+html.android-webview .composer-more-menu,
+html.android-webview .bubble-user,
+html.android-webview .bubble-ai,
+html.android-webview .message-context-menu,
+html.android-webview .conversation-context-menu {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+html.android-webview .modal-overlay {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+  background: rgba(18, 28, 44, 0.28) !important;
+}
+html.android-webview #settingsOverlay {
+  background: #f2f5f9 !important;
+}
+html.android-webview[data-theme="dark"] #settingsOverlay {
+  background: #10141b !important;
+}
+html.android-webview #settingsPanel,
+html.android-webview #settingsPanel > div:first-child,
+html.android-webview #settingsPanel > div:nth-child(2) > section,
+html.android-webview #settingsPanel > div:last-child {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+  animation: none !important;
+  transform: none !important;
+}
+html.android-webview #settingsPanel > div:first-child {
+  margin-top: 12px !important;
+  background: #ffffff !important;
+}
+html.android-webview #settingsPanel > div:nth-child(2) > section {
+  background: #ffffff !important;
+  box-shadow: 0 4px 12px rgba(76, 49, 35, 0.08) !important;
+}
+html.android-webview[data-theme="dark"] #settingsPanel > div:first-child,
+html.android-webview[data-theme="dark"] #settingsPanel > div:nth-child(2) > section,
+html.android-webview[data-theme="dark"] #settingsPanel > div:last-child {
+  background: #1a2029 !important;
+}
+html.android-webview #settingsOverlay * {
+  transition-duration: 0.01ms !important;
+}
+html.android-webview #inputBar .conversation-composer,
+html.android-webview .initial-composer-shell,
+html.android-webview input,
+html.android-webview textarea,
+html.android-webview select {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+  transition: none !important;
+}
+html.android-webview .message-more-btn {
+  opacity: 1 !important;
+}

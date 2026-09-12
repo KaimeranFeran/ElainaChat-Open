@@ -2,7 +2,8 @@
    ElainaChat · Galgame 界面（参考 LingChat：背景 + 立绘舞台 + 底部对话框 + 角落菜单）
    默认关闭；由设置「Galgame」段或界面内退出按钮控制
    ============================================================ */
-#galgameLayer { position: fixed; inset: 0; z-index: 45;   /* 高于 sidebar/floatingMic(40)，低于一切弹窗(50+) —— OCR 二轮 S6 实测 */
+#galgameLayer { display: none; position: fixed; inset: 0; z-index: 45;   /* 高于 sidebar/floatingMic(40)，低于一切弹窗(50+) —— OCR 二轮 S6 实测 */
+}
 #galgameLayer.on { display: block; }
 
 /* 场景背景由真实图片承担（img/bg/*.jpg，#ggScene > .bgA/.bgB），旧 CSS 分层场景段已删除（OCR M5） */
@@ -87,7 +88,7 @@
 }
 
 /* 背景场景选择器：固定在设置行内（横向滚动，不溢出面板） */
-.sw-setting-theme-row:has(#swGgSceneList) { flex-direction: column !important; align-items: stretch !important; }
+.sw-setting-theme-row.gg-row { flex-direction: column !important; align-items: stretch !important; }
 #swGgSceneList { display: flex; gap: 8px; overflow-x: auto; overflow-y: hidden; max-width: 100%; box-sizing: border-box; padding-bottom: 4px; scrollbar-width: thin; }
 #swGgSceneList .sw-gg-thumb { flex: 0 0 auto; }
 

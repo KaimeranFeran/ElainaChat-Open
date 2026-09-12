@@ -84,7 +84,12 @@
       if (typing) { finishTyping(); return; }
       nextHistory();
     });
-    layer.querySelector('#ggExit').addEventListener('click', function (ev) { ev.stopPropagation(); GAL_SETTING_OPEN = false; setEnabled(false); });
+    layer.querySelector('#ggExit').addEventListener('click', function (ev) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      GAL_SETTING_OPEN = false;
+      setEnabled(false);
+    });
     layer.querySelector('#ggSettings').addEventListener('click', function (ev) {
       ev.stopPropagation();
       GAL_SETTING_OPEN = true;
@@ -351,6 +356,7 @@
   }
   function open() {
     build();
+    layer.style.display = 'block';
     syncSceneHint();
     applyOptions();
     layer.classList.add('on');
@@ -371,7 +377,10 @@
   }
   function close() {
     try { window.__galgameSceneHint = ''; } catch (e) {}
-    if (layer) layer.classList.remove('on');
+    if (layer) {
+      layer.classList.remove('on');
+      layer.style.display = 'none';
+    }
     if (typeTimer) { clearInterval(typeTimer); typeTimer = null; typing = false; }
     if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
   }

@@ -8,6 +8,8 @@
         :root {
             --app-height: 100vh;
             --viewport-offset-top: 0px;
+            --initial-stable-height: 100vh;
+            --initial-keyboard-inset: 0px;
             --safe-top: env(safe-area-inset-top, 0px);
             --safe-right: env(safe-area-inset-right, 0px);
             --safe-bottom: env(safe-area-inset-bottom, 0px);
@@ -447,6 +449,7 @@
         }
         .conversation-context-menu button:active { background: rgba(226, 214, 190, .58); }
         .conversation-context-menu button.danger { color: #a65347; }
+        .conversation-context-menu button:disabled { opacity: .42; cursor: not-allowed; }
         .conversation-context-menu svg { width: 16px; height: 16px; flex: 0 0 16px; }
 
         /* ==================== 消息长按上下文菜单（撤回/多选/编辑） ==================== */
@@ -562,9 +565,15 @@
         .message-selection-bar button:active { background: rgba(226, 214, 190, .6); }
         .message-selection-bar button.primary:active { background: var(--pixso-orange, #e8a34a); }
 
-        /* 兼容旧 WebView（Chromium < 87 不支持 inset 简写，会导致浮层定位失效）：
-           用长属性兜底所有 fixed inset-0 浮层，新 WebView 上效果与 inset: 0 相同。 */
-        .fixed.inset-0 { top: 0; right: 0; bottom: 0; left: 0; }
+        /* Chromium < 87 (used by some older Android System WebView builds)
+           drops the inset shorthand. Keep the Tailwind class, but provide
+           equivalent longhand edges so fixed overlays still cover the viewport. */
+        .fixed.inset-0 {
+            top: 0;
+            right: 0;
+            bottom: 0;
+            left: 0;
+        }
 
         #customModal { z-index: 1000 !important; }
         #customModal:not(.hidden),
@@ -1014,6 +1023,14 @@
             outline: 2px solid rgba(236, 72, 153, 0.48);
             outline-offset: 2px;
         }
+        .message-more-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            flex: 0 0 auto;
+            color: rgba(125, 134, 156, 0.9);
+        }
+        .message-more-btn:hover { color: var(--color-primary); background: rgba(255, 255, 255, 0.42); }
 
         .tab-active {
             background: rgba(255, 255, 255, 0.75);
@@ -1357,8 +1374,8 @@
         #appShell {
             position: relative;
             width: min(1440px, calc(100vw - 48px));
-            height: min(900px, calc(100vh - 48px));
-            min-height: 640px;
+            height: min(900px, calc(var(--app-height) - 48px));
+            min-height: min(640px, calc(var(--app-height) - 48px));
             margin: 24px auto;
             overflow: hidden;
             border-radius: 36px;
@@ -1696,6 +1713,21 @@
         .modal-panel .btn-secondary:hover { color: var(--pixso-brown); background: var(--pixso-panel-soft); border-color: #cbb6ae; box-shadow: none; }
         #announcementOverlay,
         #conversationPromptOverlay { z-index: 1200 !important; }
+        #announcementOverlay {
+            position: fixed;
+            top: 0;
+            right: 0;
+            bottom: 0;
+            left: 0;
+            box-sizing: border-box;
+            width: auto;
+            height: auto;
+            padding: calc(14px + var(--safe-top)) calc(14px + var(--safe-right)) calc(14px + var(--safe-bottom)) calc(14px + var(--safe-left));
+            align-items: center;
+            justify-content: center;
+        }
+        #announcementOverlay.hidden { display: none !important; }
+        #announcementOverlay:not(.hidden) { display: flex !important; }
         .guide-modal-panel { width: min(92vw, 520px); max-height: min(86vh, 720px); overflow: hidden; display: flex; flex-direction: column; }
         .guide-modal-scroll { overflow-y: auto; padding: 22px 24px 18px; flex: 1 1 auto; min-height: 0; }
         .guide-eyebrow { color: var(--pixso-orange); font-size: 12px; font-weight: 700; }
@@ -2024,6 +2056,12 @@
             width: 100%;
             margin-bottom: 12px;
         }
+        @supports (content-visibility: auto) {
+            #conversationHistory > .message-item {
+                content-visibility: auto;
+                contain-intrinsic-size: auto 132px;
+            }
+        }
         #conversationHistory > .message-item > .flex { display: flex; width: 100%; margin-bottom: 8px !important; }
         #conversationHistory > .message-item > .flex > .flex-1 {
             flex: 0 1 auto;
@@ -2032,19 +2070,6 @@
         }
         #conversationHistory > .message-item-user > .flex { justify-content: flex-end; }
         #conversationHistory > .message-item-ai > .flex { justify-content: flex-start; }
-        .pixso-chat-avatar {
-            width: 40px;
-            height: 40px;
-            flex: 0 0 40px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: #fff;
-            background: var(--pixso-orange);
-            border-radius: 50%;
-            box-shadow: none;
-        }
-        .pixso-chat-avatar svg { width: 21px; height: 21px; display: block; }
         .thinking-bubble .thinking-dot {
             background: var(--pixso-orange);
             box-shadow: none;
@@ -2067,33 +2092,10 @@
         .bubble-user {
             color: #fff;
             background: var(--pixso-brown);
-            border-radius: 16px 16px 0 16px;
         }
         .bubble-ai {
             color: var(--pixso-brown);
             background: var(--pixso-panel-soft);
-            border-radius: 16px 16px 16px 0;
-        }
-        .bubble-user::after,
-        .bubble-ai::after {
-            content: "";
-            position: absolute;
-            bottom: -13px;
-            width: 16px;
-            height: 16px;
-            pointer-events: none;
-        }
-        .bubble-user::after {
-            right: 0;
-            background: var(--pixso-brown);
-            border-bottom-left-radius: 16px;
-            box-shadow: 0 -3px 0 var(--pixso-brown);
-        }
-        .bubble-ai::after {
-            left: 0;
-            background: var(--pixso-panel-soft);
-            border-bottom-right-radius: 16px;
-            box-shadow: 0 -3px 0 var(--pixso-panel-soft);
         }
         .bubble-user .text-indigo-500,
         .bubble-user .text-indigo-300,
@@ -2173,7 +2175,7 @@
         .voice-icon-pause { display: none; }
         .ai-voice-player.is-playing .voice-icon-play { display: none; }
         .ai-voice-player.is-playing .voice-icon-pause { display: block; }
-        .ai-voice-player.is-paused .voice-wave-bar { opacity: .55; }
+        .ai-voice-player.is-paused .voice-waveform { opacity: .55; }
         .voice-duration {
             min-width: 30px;
             color: var(--pixso-brown);
@@ -2184,29 +2186,16 @@
             text-align: left;
         }
         .voice-waveform {
+            width: 58px;
             height: 22px;
             margin-left: auto;
-            display: inline-flex;
-            align-items: center;
-            gap: 2px;
-        }
-        .voice-wave-bar {
-            width: 2px;
-            height: 6px;
-            flex: 0 0 2px;
-            background: var(--pixso-brown);
-            border-radius: 2px;
+            display: block;
+            flex: 0 0 58px;
             transform-origin: center;
             opacity: .95;
         }
-        .voice-wave-bar:nth-child(2), .voice-wave-bar:nth-child(8), .voice-wave-bar:nth-child(14) { height: 14px; }
-        .voice-wave-bar:nth-child(3), .voice-wave-bar:nth-child(7), .voice-wave-bar:nth-child(11), .voice-wave-bar:nth-child(15) { height: 19px; }
-        .voice-wave-bar:nth-child(4), .voice-wave-bar:nth-child(10) { height: 12px; }
-        .voice-wave-bar:nth-child(5), .voice-wave-bar:nth-child(9), .voice-wave-bar:nth-child(13) { height: 22px; }
-        .voice-wave-bar:nth-child(6), .voice-wave-bar:nth-child(12) { height: 9px; }
-        .ai-voice-player.is-playing .voice-wave-bar { animation: voice-wave-pulse .58s ease-in-out infinite alternate; }
-        .ai-voice-player.is-playing .voice-wave-bar:nth-child(3n + 1) { animation-delay: -.18s; }
-        .ai-voice-player.is-playing .voice-wave-bar:nth-child(3n + 2) { animation-delay: -.34s; }
+        .voice-waveform svg { width: 58px; height: 22px; display: block; overflow: visible; }
+        .ai-voice-player.is-playing .voice-waveform { animation: voice-wave-pulse .58s ease-in-out infinite alternate; }
         @keyframes voice-wave-pulse {
             from { transform: scaleY(.45); opacity: .65; }
             to { transform: scaleY(1); opacity: 1; }
@@ -2370,10 +2359,18 @@
             gap: 14px;
             padding: 14px 32px 34px;
         }
+        .diary-scroll {
+            flex: 1 1 0%;
+            min-height: 0;
+            overflow-x: hidden;
+            overflow-y: auto;
+        }
         .diary-card {
             position: relative;
             min-height: 150px;
             padding: 18px 18px 16px;
+            display: flex;
+            flex-direction: column;
             background: var(--pixso-cream);
             border: 1px solid var(--pixso-line);
             border-radius: 18px 18px 18px 6px;
@@ -2386,10 +2383,25 @@
         .diary-card-text { margin-top: 8px; color: var(--pixso-brown-soft); font-size: 13px; line-height: 1.55; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
         .diary-essences { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
         .diary-essence { padding: 4px 8px; color: var(--pixso-green-dark); background: rgba(167,187,108,.18); border-radius: 999px; font-size: 10px; font-weight: 700; }
+        .diary-card-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-top: auto; padding-top: 15px; }
+        .diary-card-action {
+            min-height: 32px;
+            padding: 0 11px;
+            color: var(--pixso-brown);
+            background: rgba(255, 255, 255, .68);
+            border: 1px solid rgba(217, 199, 192, .82);
+            border-radius: 999px;
+            font-size: 11px;
+            font-weight: 700;
+        }
+        .diary-card-action:hover { color: var(--pixso-orange); border-color: rgba(255, 125, 77, .48); background: #fff; }
+        .diary-card-action.danger { color: #a65347; }
+        .diary-card-action:disabled { opacity: .42; cursor: not-allowed; }
+        .diary-card.is-context-target { border-color: var(--pixso-green); box-shadow: 0 12px 28px rgba(76,49,35,.14); }
         .diary-empty { padding: 90px 24px; color: var(--pixso-brown-soft); text-align: center; }
 
         @media (max-width: 1080px) and (min-width: 861px) {
-            #appShell { width: calc(100vw - 28px); height: calc(100vh - 28px); margin: 14px auto; }
+            #appShell { width: calc(100vw - 28px); height: calc(var(--app-height) - 28px); min-height: min(640px, calc(var(--app-height) - 28px)); margin: 14px auto; }
             #sidebar { width: 330px; flex-basis: 330px; }
             #sidebar::before, .sidebar-rail { width: 96px; }
             #sidebar > div:not(.sidebar-rail) { width: calc(100% - 96px); margin-left: 96px; }
@@ -2590,6 +2602,24 @@
                 overscroll-behavior: contain;
                 padding: calc(26px + var(--safe-top)) calc(16px + var(--safe-right)) calc(30px + var(--safe-bottom)) calc(16px + var(--safe-left));
             }
+            body.initial-keyboard-visible #initialState {
+                justify-content: flex-end;
+                justify-content: safe flex-end;
+                padding-top: calc(10px + var(--safe-top));
+                padding-bottom: calc(var(--initial-keyboard-inset) + 10px + var(--safe-bottom));
+            }
+            body.initial-keyboard-visible #initialState .initial-composer {
+                margin-top: 24px;
+            }
+            body.initial-keyboard-tracking #appShell {
+                top: 0;
+                height: var(--initial-stable-height);
+            }
+            body.initial-keyboard-tracking #mainContent > header {
+                flex-basis: 72px;
+                min-height: 72px;
+            }
+            body.initial-keyboard-tracking #greetingText { font-size: 28px; }
             #greetingText { font-size: 28px; }
             #conversationHistory { padding: 18px 16px 112px; }
             #conversationHistory > .message-item > .flex > .flex-1 { max-width: 88%; }
@@ -2604,8 +2634,19 @@
             .initial-composer { width: 100%; }
             .initial-composer-shell { min-height: 58px; padding-left: 10px; }
             .composer-more-menu { width: min(276px, calc(100vw - 32px)); }
+            #announcementOverlay .guide-modal-panel {
+                max-height: calc(100vh - 28px - var(--safe-top) - var(--safe-bottom));
+                max-height: calc(100dvh - 28px - var(--safe-top) - var(--safe-bottom));
+            }
             .diary-toolbar { padding: 20px 16px 8px; }
+            .diary-scroll {
+                overscroll-behavior-y: contain;
+                -webkit-overflow-scrolling: touch;
+                touch-action: pan-y;
+            }
             .diary-grid { grid-template-columns: 1fr; padding: 12px calc(16px + var(--safe-right)) calc(28px + var(--safe-bottom)) calc(16px + var(--safe-left)); }
+            .diary-card-actions { display: none; }
+            .diary-card { touch-action: pan-y; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
             #folderList [data-conv-id] {
                 position: relative;
                 min-height: 54px;
@@ -2745,3 +2786,11 @@
             #settingsPanel { animation-duration: 0.01ms !important; }
         }
     
+
+/* 设置面板打开时隐藏麦克风相关浮层（避免与面板叠加、出现多个录音按钮 —— 用户反馈修复） */
+body.settings-open #floatingMic,
+body.settings-open #floatingMicBtn,
+body.settings-open .floating-mic-surface,
+body.settings-open #micBtn,
+body.settings-open #conversation-mic-btn,
+body.settings-open #initial-conversation-mic { display: none !important; visibility: hidden !important; }

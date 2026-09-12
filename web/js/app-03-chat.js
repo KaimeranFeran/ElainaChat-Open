@@ -4,7 +4,9 @@
         let _audioContext = null;
         function getAudioContext() {
             if (!_audioContext) {
-                _audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                const AudioContextConstructor = window.AudioContext || window.webkitAudioContext;
+                if (!AudioContextConstructor) throw new Error('当前 WebView 不支持 Web Audio');
+                _audioContext = new AudioContextConstructor();
             }
             if (activeVoicePlaybackStatus === 'paused') {
                 if (_audioContext.state === 'running') _audioContext.suspend().catch(() => {});
@@ -12,6 +14,15 @@
                 _audioContext.resume().catch(() => {});
             }
             return _audioContext;
+        }
+
+        function unlockAudioOutput() {
+            try {
+                const context = getAudioContext();
+                if (context && context.state === 'suspended') context.resume().catch(() => {});
+            } catch (error) {
+                console.warn('[TTS] WebView 音频解锁失败:', error);
+            }
         }
 
         const TTS_CACHE_DB_NAME = 'elaina_tts_cache_v1';
@@ -482,6 +493,8 @@
         // ==================== 设置 ====================
 
         function openSettings() {
+    /* 设置打开时隐藏悬浮麦克风等浮层，避免与设置面板叠加出「两个录音按钮」/错位 */
+    try { document.body.classList.add('settings-open'); } catch (e) {}
             elements.settingBaseUrl.value = state.settings.baseUrl || DEFAULT_SETTINGS.baseUrl;
             elements.settingApiKey.value = state.settings.apiKey;
             document.getElementById('settingMinimaxApiKey').value = state.settings.minimaxApiKey || '';
@@ -528,6 +541,7 @@
         }
 
         function closeSettingsPanel() {
+    try { document.body.classList.remove('settings-open'); } catch (e) {}
             elements.settingsOverlay.classList.add('hidden');
             elements.settingsOverlay.classList.remove('flex');
             syncRailActive();
@@ -764,6 +778,7 @@
             updateComposerSendVisibility();
 
             initSpeechRecognition();
+            document.addEventListener('pointerdown', unlockAudioOutput, { capture: true, passive: true });
 
             loadDailyQuote();
 
@@ -1150,7 +1165,10 @@
             document.body.classList.toggle('initial-keyboard-visible', keyboardVisible);
         }
 
-        function syncViewportHeight(options = {}) {
+        let viewportSyncFrame = 0;
+        let pendingViewportSyncOptions = {};
+
+        function applyViewportHeight(options = {}) {
             const viewport = window.visualViewport;
             const textEntryFocused = isViewportTextEntryFocused();
             const preferWindowHeight = Boolean(options.preferWindowHeight) && !textEntryFocused;
@@ -1166,12 +1184,32 @@
             const viewportTop = window.innerWidth <= 860 && textEntryFocused && !preferWindowHeight
                 ? Math.max(0, viewport?.offsetTop || 0)
                 : 0;
-            if (viewportHeight) document.documentElement.style.setProperty('--app-height', `${Math.round(viewportHeight)}px`);
-            document.documentElement.style.setProperty('--viewport-offset-top', `${Math.round(viewportTop)}px`);
+            const rootStyle = document.documentElement.style;
+            const setRootPx = (name, value) => {
+                const next = `${Math.round(value)}px`;
+                if (rootStyle.getPropertyValue(name) !== next) rootStyle.setProperty(name, next);
+            };
+            if (viewportHeight) setRootPx('--app-height', viewportHeight);
+            setRootPx('--viewport-offset-top', viewportTop);
             if (!initialComposerViewportBaseline && !textEntryFocused && viewportHeight) {
-                document.documentElement.style.setProperty('--initial-stable-height', `${Math.round(viewportHeight)}px`);
+                setRootPx('--initial-stable-height', viewportHeight);
             }
             syncInitialComposerKeyboardState(observedViewportHeight);
+        }
+
+        function syncViewportHeight(options = {}) {
+            pendingViewportSyncOptions = {
+                ...pendingViewportSyncOptions,
+                ...options
+            };
+            if (viewportSyncFrame) return;
+            const schedule = window.requestAnimationFrame || (callback => window.setTimeout(callback, 16));
+            viewportSyncFrame = schedule(() => {
+                viewportSyncFrame = 0;
+                const nextOptions = pendingViewportSyncOptions;
+                pendingViewportSyncOptions = {};
+                applyViewportHeight(nextOptions);
+            });
         }
 
         function scheduleViewportRecovery() {

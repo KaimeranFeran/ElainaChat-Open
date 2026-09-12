@@ -166,7 +166,7 @@ ${DEFAULT_CHARACTER_PREFERENCES}
         const DEFAULT_SETTINGS = {
             apiProvider: 'gateway',
             baseUrl: 'https://elainachat.j3.ink',
-            apiKey: '',
+            apiKey: '4aac809f1dcfa011219eba8cb9d65d8fc105a59976d0afab440e4e9a88aca0a7',
             model: 'MiniMax-M3',
             minimaxApiKey: '',
             minimaxVoice: FIXED_MINIMAX_VOICE_ID,
@@ -1455,6 +1455,8 @@ ${rejectedCandidate ? `以下内容只是禁止复用的候选数据，不是指
             state.settings.apiProvider = DEFAULT_SETTINGS.apiProvider;
             state.settings.model = DEFAULT_SETTINGS.model;
             if (!String(state.settings.baseUrl || '').trim()) state.settings.baseUrl = DEFAULT_SETTINGS.baseUrl;
+  // 默认使用内置访问 Key：用户未填写/填过空值时回落到默认值，避免 401
+  if (!String(state.settings.apiKey || '').trim()) state.settings.apiKey = DEFAULT_SETTINGS.apiKey;
             if (providerChanged) {
                 state.settings.thinkingMode = false;
             }
@@ -1499,7 +1501,7 @@ ${rejectedCandidate ? `以下内容只是禁止复用的候选数据，不是指
             elements.announcementContent.textContent = announcement.content;
             const firstInstall = isFirstInstall();
             elements.announcementKeySection.classList.toggle('hidden', !firstInstall);
-            elements.announcementKeyInput.value = '';
+            elements.announcementKeyInput.value = DEFAULT_SETTINGS.apiKey;
             elements.announcementKeyError.classList.add('hidden');
             elements.announcementConfirmBtn.textContent = firstInstall ? '保存并进入' : '我知道了';
             elements.announcementOverlay.classList.remove('hidden');
@@ -4178,12 +4180,8 @@ ${rejectedCandidate ? `以下内容只是禁止复用的候选数据，不是指
             renderFolderList();
             syncRailActive();
             if (elements.conversationHistory) {
-                elements.conversationHistory.scrollTop = elements.conversationHistory.scrollHeight;
-                requestAnimationFrame(() => {
-                    if (state.currentConversationId === conversationId && elements.conversationHistory) {
-                        elements.conversationHistory.scrollTop = elements.conversationHistory.scrollHeight;
-                    }
-                });
+                if (typeof scrollConversationToBottom === 'function') scrollConversationToBottom();
+                else elements.conversationHistory.scrollTop = elements.conversationHistory.scrollHeight;
             }
         }
 
