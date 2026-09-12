@@ -112,3 +112,17 @@
 @keyframes pet-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-4px); } }
 /* OCR 二轮 N4：旧场景段删除后 vignette 变成无样式，补回四周压暗 */
 #ggScene .vignette { position: absolute; inset: 0; background: radial-gradient(ellipse at 50% 38%, transparent 42%, rgba(4,6,12,.62) 100%); pointer-events: none; }
+
+/* ============ 立绘缩放（置于文件最末，确保不被任何更早规则覆盖） ============ */
+@media (min-width: 561px) {
+  #galgameLayer #ggAvatar {
+    max-height: calc(100% * var(--gg-scale, 1)) !important;
+    max-width: calc(68% * var(--gg-scale, 1)) !important;
+  }
+}
+@media (max-width: 560px) {
+  #galgameLayer #ggAvatar {
+    max-height: calc(118% * var(--gg-scale, 1)) !important;
+    max-width: calc(104% * var(--gg-scale, 1)) !important;
+  }
+}
