@@ -1,6 +1,8 @@
 * { margin: 0; padding: 0; box-sizing: border-box; }
 html, body { width: 100%; height: 100%; overflow: hidden; background: transparent; font-family: "Outfit", "PingFang SC", "Microsoft YaHei", sans-serif; }
-#stage { position: relative; width: 100%; height: 100%; display: flex; flex-direction: column; }
+#stage { position: relative; width: 100%; height: 100%; display: flex; flex-direction: column;
+  /* 近乎透明的命中板，确保桌宠窗口不会把输入点击交给后面的应用。 */
+  background: rgba(0, 0, 0, 0.001); }
 
 /* 拖拽条 */
 #dragStrip { position: absolute; top: 0; left: 10px; right: 10px; height: 22px; z-index: 40; cursor: grab; -webkit-user-select: none;
@@ -60,3 +62,17 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: transparen
 #statusTip.show { opacity: 1; }
 #petAvatar.emo-swap { animation: pet-breathe 6.5s ease-in-out infinite, pet-bob 9s ease-in-out 1.2s infinite, emo-in .32s cubic-bezier(.3,1.4,.5,1) both; }
 @keyframes emo-in { from { opacity: .3; transform: scale(.97); } to { opacity: 1; transform: scale(1); } }
+
+#petBackBtn { position: absolute; top: 34px; right: 8px; z-index: 45; width: 30px; height: 30px; border-radius: 50%;
+  border: 1px solid rgba(255,255,255,0.14); background: rgba(10,13,18,0.6); color: rgba(255,255,255,0.85);
+  font-size: 15px; cursor: pointer; backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  -webkit-tap-highlight-color: transparent; transition: transform .15s ease, background .15s ease; }
+#petBackBtn:hover { background: rgba(0,122,255,0.55); transform: scale(1.08); }
+#petBackBtn:active { transform: scale(.92); }
+
+#petMic { flex: 0 0 auto; width: 38px; height: 38px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.14);
+  background: rgba(255,255,255,0.07); color: #eaf1fb; font-size: 15px; cursor: pointer;
+  -webkit-tap-highlight-color: transparent; transition: transform .15s ease, background .15s ease; }
+#petMic:active { transform: scale(.92); }
+#petMic.rec { background: linear-gradient(180deg, #ff5b6e, #e0364f); border-color: rgba(255,255,255,.3); animation: mic-pulse 1s ease-in-out infinite; }
+@keyframes mic-pulse { 0%,100% { box-shadow: 0 0 0 0 rgba(255,80,100,.5); } 50% { box-shadow: 0 0 0 8px rgba(255,80,100,0); } }

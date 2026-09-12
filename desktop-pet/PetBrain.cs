@@ -28,6 +28,7 @@ public class PetBrain
     /* 静态复用：避免每次新建都不释放导致端口耗尽 */
     private static readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(130) };
     private string _base = "";
+    private string _requestBase = "";
     private string _key = "";
     private string _model = "MiniMax-M3";   /* 与前端 state.settings.model 默认值一致（OCR 二轮） */
     private bool _auto;
@@ -61,14 +62,21 @@ public class PetBrain
     public void ConfigureFromSettings()
     {
         var s = LoadSettings();
-        Configure(s.ServerBase, s.ApiKey);
+        var baseUrl = File.Exists(SettingsFile) ? s.ServerBase : DefaultGateway;
+        Configure(baseUrl, s.ApiKey);
     }
 
     public void Configure(string baseUrl, string apiKey, string? model = null)
     {
-        _base = (baseUrl ?? "").Trim().TrimEnd('/');
+        var candidate = (baseUrl ?? "").Trim().TrimEnd('/');
+        _base = string.IsNullOrWhiteSpace(candidate) ? DefaultGateway : candidate;
         _key = (apiKey ?? "").Trim();
         if (!string.IsNullOrWhiteSpace(model)) _model = model.Trim();
+    }
+
+    public void ConfigureRequestBase(string requestBaseUrl)
+    {
+        _requestBase = (requestBaseUrl ?? "").Trim().TrimEnd('/');
     }
 
     /// <summary>主动回复：重启定时器（默认关闭；开启后每 5~60 分钟读前台窗口并主动聊天）。</summary>
@@ -101,7 +109,7 @@ public class PetBrain
     {
         try
         {
-            if (string.IsNullOrWhiteSpace(_base)) { PostToWeb("系统未配置网关地址，请右键打开设置填写"); return; }
+            if (string.IsNullOrWhiteSpace(_key)) { PostToWeb("请先在主界面设置中填写 ElainaChat 使用 Key"); return; }
             var payload = new
             {
                 model = _model,
@@ -111,20 +119,48 @@ public class PetBrain
                     new { role = "user", content = userText }
                 }
             };
-            var req = new HttpRequestMessage(HttpMethod.Post, _base + "/api/chat/completions");
+            var requestBase = string.IsNullOrWhiteSpace(_requestBase) ? _base : _requestBase;
+            var req = new HttpRequestMessage(HttpMethod.Post, requestBase + "/api/chat/completions");
             if (!string.IsNullOrWhiteSpace(_key)) req.Headers.TryAddWithoutValidation("Authorization", "Bearer " + _key);
             req.Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
             using var res = await _http.SendAsync(req);
             string raw = await res.Content.ReadAsStringAsync();
-            if (!res.IsSuccessStatusCode) { PostToWeb("网关返回 [" + (int)res.StatusCode + "]，请检查 Key/地址"); return; }
+            if (!res.IsSuccessStatusCode)
+            {
+                PostToWeb("网关返回 [" + (int)res.StatusCode + "]，请检查 Key/地址");
+                WriteLog("chat http " + (int)res.StatusCode + " " + requestBase + " target=" + _base);
+                return;
+            }
             using var doc = JsonDocument.Parse(raw);
-            string? reply = doc.RootElement.GetProperty("choices")[0].GetProperty("message").GetProperty("content").GetString();
+            string? reply = ExtractReply(doc.RootElement);
             PostToWeb(string.IsNullOrWhiteSpace(reply) ? "（伊蕾娜没有说话）" : reply.Trim());
         }
         catch (Exception ex)
         {
+            WriteLog("chat failed " + ex.GetType().Name + ": " + ex.Message);
             PostToWeb("连接失败：" + (ex.Message ?? "网络错误"));
         }
+    }
+
+    private static string? ExtractReply(JsonElement root)
+    {
+        if (!root.TryGetProperty("choices", out var choices) ||
+            choices.ValueKind != JsonValueKind.Array || choices.GetArrayLength() == 0) return null;
+        var first = choices[0];
+        if (!first.TryGetProperty("message", out var message) || message.ValueKind != JsonValueKind.Object) return null;
+        if (!message.TryGetProperty("content", out var content)) return null;
+        if (content.ValueKind == JsonValueKind.String) return content.GetString();
+        if (content.ValueKind == JsonValueKind.Array)
+        {
+            var sb = new StringBuilder();
+            foreach (var part in content.EnumerateArray())
+            {
+                if (part.ValueKind == JsonValueKind.String) sb.Append(part.GetString());
+                else if (part.ValueKind == JsonValueKind.Object && part.TryGetProperty("text", out var text)) sb.Append(text.GetString());
+            }
+            return sb.ToString();
+        }
+        return null;
     }
 
     private void PostToWeb(string text)
@@ -143,5 +179,16 @@ public class PetBrain
     public void Dispose()
     {
         try { _timer?.Dispose(); _timer = null; } catch { }
+    }
+
+    private static void WriteLog(string message)
+    {
+        try
+        {
+            var path = App.LogPath;
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.AppendAllText(path, DateTime.Now + " [PetBrain] " + message + Environment.NewLine);
+        }
+        catch { }
     }
 }

@@ -5,15 +5,18 @@
         Title="ElainaChat"
         Width="1180" Height="800"
         WindowStyle="None"
-        AllowsTransparency="True"
-        Background="Transparent"
+        AllowsTransparency="False"
+        Background="#EEF1F5"
         Topmost="False"
         ShowInTaskbar="True"
         ResizeMode="NoResize"
+        UseLayoutRounding="True"
+        SnapsToDevicePixels="True"
         WindowStartupLocation="CenterScreen"
-        Loaded="Window_Loaded">
+        Loaded="Window_Loaded"
+        StateChanged="Window_StateChanged">
 
-    <Grid Margin="6">
+    <Grid x:Name="RootGrid" Margin="6">
         <Border x:Name="Shell" Background="#EEF1F5" CornerRadius="18" ClipToBounds="True">
           <Grid>
             <Grid.RowDefinitions>
@@ -38,7 +41,8 @@
             </Border>
 
             <!-- 主体：聊天界面 -->
-            <wv2:WebView2 x:Name="WebView" Grid.Row="1"/>
+            <wv2:WebView2 x:Name="WebView" Grid.Row="1"
+                          HorizontalAlignment="Stretch" VerticalAlignment="Stretch"/>
           </Grid>
         </Border>
     </Grid>

@@ -9,6 +9,7 @@
 <body>
 <div id="stage">
   <div id="dragStrip" title="按住拖动"></div>
+  <button id="petBackBtn" type="button" title="返回主界面" style="display:none">⟲</button>
 
   <!-- 顶部：气泡区 -->
   <div id="dialogZone">
@@ -27,10 +28,12 @@
 
   <!-- 底部：输入 -->
   <div id="inputZone">
+    <button id="petMic" type="button" title="语音输入">🎤</button>
     <input id="petInput" type="text" placeholder="和伊蕾娜说点什么…" autocomplete="off">
     <button id="petSend" type="button">➤</button>
   </div>
 </div>
-<script src="pet.js"></script>
+<script src="js/elaina-emotion.js" defer></script>
+  <script src="pet.js"></script>
 </body>
 </html>

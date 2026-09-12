@@ -4,7 +4,9 @@ using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Media;
 using Microsoft.Web.WebView2.Core;
 
 namespace ElainaPet;
@@ -30,10 +32,11 @@ public partial class MainWindow : Window
 
     private async void Window_Loaded(object sender, RoutedEventArgs e)
     {
+        UpdateWindowChrome();
         PositionAtBottomRight();
+        StartLocalProxy();
         await InitializeWebViewAsync();
         _brain = new PetBrain(WebView);
-        StartLocalProxy();
         ReloadSettingsAndTimer();
     }
 
@@ -48,13 +51,25 @@ public partial class MainWindow : Window
     {
         var userDataFolder = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "ElainaPet", "WebView2");
-        _env = await CoreWebView2Environment.CreateAsync(null, userDataFolder);
+            "ElainaPet", "WebView2", "Main");
+        var options = new CoreWebView2EnvironmentOptions
+        {
+            /* 语音在模型回复后播放，允许本地页面启动 Web Audio，避免 WebView2 静默拦截。 */
+            AdditionalBrowserArguments = "--autoplay-policy=no-user-gesture-required"
+        };
+        _env = await CoreWebView2Environment.CreateAsync(null, userDataFolder, options);
         await WebView.EnsureCoreWebView2Async(_env);
         WebView.DefaultBackgroundColor = System.Drawing.Color.FromArgb(238, 241, 245);
+        WebView.CoreWebView2.IsMuted = false;
+        WebView.CoreWebView2.Settings.IsZoomControlEnabled = false;
+        WebView.CoreWebView2.Settings.IsSwipeNavigationEnabled = false;
         WebView.CoreWebView2.WebMessageReceived += OnWebMessageReceived;
-        WebView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync("window.__pcPetStatus = { enabled: null };");
-        WebView.CoreWebView2.NavigationCompleted += (_, _e) => SyncPetFromSettings();
+        await WebView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync("window.__pcPetStatus = { enabled: null };");
+        WebView.CoreWebView2.NavigationCompleted += (_, navigation) =>
+        {
+            if (navigation.IsSuccess) SyncPetFromSettings();
+            else System.Diagnostics.Debug.WriteLine("[WebView2] navigation failed: " + navigation.WebErrorStatus);
+        };
         WebView.CoreWebView2.PermissionRequested += OnPermissionRequested;
         WebView.CoreWebView2.DownloadStarting += OnDownloadStarting;
         LoadChatPage();
@@ -74,7 +89,8 @@ public partial class MainWindow : Window
             var kind = e.PermissionKind;
             if (kind == CoreWebView2PermissionKind.Microphone ||
                 kind == CoreWebView2PermissionKind.Camera ||
-                kind == CoreWebView2PermissionKind.Notifications)
+                kind == CoreWebView2PermissionKind.Notifications ||
+                kind == CoreWebView2PermissionKind.Autoplay)
             {
                 e.State = CoreWebView2PermissionState.Allow;
             }
@@ -208,6 +224,25 @@ public partial class MainWindow : Window
             int.TryParse(Unwrap(intervalRaw), out interval);
             if (interval < 5) interval = 15;
             _petWindow.ConfigureBrain(baseUrl, apiKey, model, proactive, interval);
+            /* 尺度 / 允许拖动 / 点击穿透：读前端设置并热应用（PC 桌宠可拖动 + 可调大小） */
+            double scale = 1;
+            try
+            {
+                var sRaw = await WebView.CoreWebView2.ExecuteScriptAsync("(function(){try{return localStorage.getItem('elaina_pet_scale')||'1'}catch(e){return '1'}})()");
+                double.TryParse(Unwrap(sRaw), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out scale);
+            }
+            catch { }
+            if (scale <= 0) scale = 1;
+            bool draggable = true, clickthrough = false;
+            try
+            {
+                var dRaw = await WebView.CoreWebView2.ExecuteScriptAsync("(function(){try{return localStorage.getItem('elaina_pet_draggable')||'1'}catch(e){return '1'}})()");
+                draggable = Unwrap(dRaw) != "0";
+                var cRaw = await WebView.CoreWebView2.ExecuteScriptAsync("(function(){try{return localStorage.getItem('elaina_pet_clickthrough')||'0'}catch(e){return '0'}})()");
+                clickthrough = Unwrap(cRaw) == "1";
+            }
+            catch { }
+            _petWindow.ApplyOptions(scale, draggable, clickthrough);
         }
         catch { }
     }
@@ -250,10 +285,21 @@ public partial class MainWindow : Window
 
     private void Min_Click(object sender, RoutedEventArgs e) => WindowState = WindowState.Minimized;
 
+    private void Window_StateChanged(object? sender, EventArgs e) => UpdateWindowChrome();
+
+    private void UpdateWindowChrome()
+    {
+        bool maximized = WindowState == WindowState.Maximized;
+        RootGrid.Margin = maximized ? new Thickness(0) : new Thickness(6);
+        Shell.CornerRadius = maximized ? new CornerRadius(0) : new CornerRadius(18);
+        MaxBtn.Content = maximized ? "❐" : "□";
+    }
+
     private void Max_Click(object sender, RoutedEventArgs e)
     {
-        if (WindowState == WindowState.Maximized) { WindowState = WindowState.Normal; Shell.CornerRadius = new CornerRadius(18); }
-        else { WindowState = WindowState.Maximized; Shell.CornerRadius = new CornerRadius(0); }
+        WindowState = WindowState == WindowState.Maximized
+            ? WindowState.Normal
+            : WindowState.Maximized;
     }
 
     private void Close_Click(object sender, RoutedEventArgs e) => Application.Current.Shutdown();
@@ -273,9 +319,30 @@ public partial class MainWindow : Window
 
     private void Header_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
-        if (e.OriginalSource is System.Windows.Controls.Button) return;
-        if (e.ClickCount == 2) Max_Click(sender, e);
-        else { try { DragMove(); } catch { } }
+        if (IsInsideButton(e.OriginalSource as DependencyObject))
+        {
+            e.Handled = true;
+            return;
+        }
+
+        if (e.ClickCount == 2)
+        {
+            Max_Click(sender, e);
+            e.Handled = true;
+            return;
+        }
+
+        try { DragMove(); } catch { }
+    }
+
+    private static bool IsInsideButton(DependencyObject? source)
+    {
+        while (source != null)
+        {
+            if (source is Button) return true;
+            source = VisualTreeHelper.GetParent(source);
+        }
+        return false;
     }
 
     private void Exit_Click(object sender, RoutedEventArgs e) => Application.Current.Shutdown();

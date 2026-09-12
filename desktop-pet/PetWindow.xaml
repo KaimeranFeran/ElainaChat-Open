@@ -3,10 +3,13 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
         Title="ElainaPet" Width="360" Height="520"
-        WindowStyle="None" AllowsTransparency="True" Background="Transparent"
+        WindowStyle="None" AllowsTransparency="True" Background="#01000001"
         Topmost="True" ShowInTaskbar="False" ResizeMode="NoResize"
         WindowStartupLocation="Manual" Loaded="Window_Loaded">
-    <Grid>
-        <wv2:WebView2 x:Name="PetView"/>
+    <!-- 低透明度命中板：保持视觉透明，同时固定桌宠窗口的输入域，避免点击穿透到后面的窗口。 -->
+    <Grid Background="#01000001" IsHitTestVisible="True">
+        <Border Background="#01000001" IsHitTestVisible="True">
+            <wv2:WebView2 x:Name="PetView"/>
+        </Border>
     </Grid>
 </Window>
