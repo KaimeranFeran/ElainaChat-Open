@@ -5,3 +5,13 @@ android-app/android/build/
 android-app/android/local.properties
 dist/
 *.apk
+
+# ===== 生成物（不入库，构建前由脚本生成）=====
+# 安卓：node scripts/sync-web.mjs  →  android-app/www
+android-app/www/
+# 安卓 Capacitor 拷贝产物：npx cap copy android
+android-app/android/app/src/main/assets/public/
+# PC：node scripts/pack.mjs  →  desktop-pet/web-pack
+desktop-pet/web-pack/
+desktop-pet/bin/
+desktop-pet/obj/
