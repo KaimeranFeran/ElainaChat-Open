@@ -2332,7 +2332,7 @@ ${rejectedCandidate ? `以下内容只是禁止复用的候选数据，不是指
             if (Array.isArray(payload.messages) && payload.messages.length) {
                 const name = (state.characterCard && state.characterCard.name) || '伊蕾娜';
                 const content = '对话摘录' + (payload.conversation && payload.conversation.title ? '（' + payload.conversation.title + '）' : '') + '\n' +
-                    payload.messages.map(m => (m.role === 'user' ? 'You' : name) + '：' + (m.text || '')).join('\n');
+                    payload.messages.map(m => (m.role === 'user' ? 'You' : name) + '：' + String(m.text || '').replace(/<scene>[\s\S]*?<\/scene>/gi, '').replace(/<\/?scene>/gi, '').trim()).join('\n');
                 state.memoryCore.diary = state.memoryCore.diary || [];
                 state.memoryCore.diary.push({ date: todayDateStr(), content, essences: [] });
                 note += (note ? ' ' : '') + '已把选中消息并入日记记忆。';

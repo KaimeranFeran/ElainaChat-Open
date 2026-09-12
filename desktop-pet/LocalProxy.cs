@@ -67,6 +67,8 @@ public sealed class LocalProxy : IDisposable
 
             string? origin = null, contentType = null, authorization = null;
             int contentLength = 0;
+            bool chunked = false;
+            client.ReceiveTimeout = 15000;   /* OCR M2：避免客户端连上不发数据长期挂起 */
             string? line;
             while ((line = await reader.ReadLineAsync()) != null && line.Length > 0)
             {
@@ -78,6 +80,7 @@ public sealed class LocalProxy : IDisposable
                 else if (k == "content-type") contentType = v;
                 else if (k == "authorization") authorization = v;
                 else if (k == "content-length") int.TryParse(v, out contentLength);
+                else if (k == "transfer-encoding" && v.ToLowerInvariant().Contains("chunked")) chunked = true;   /* OCR M2 */
             }
 
             /* 来源校验：只服务本地 file:// 页面（Origin 缺失或为 "null"） */
@@ -105,6 +108,11 @@ public sealed class LocalProxy : IDisposable
                 return;
             }
 
+            if (chunked)
+            {
+                await WriteResponseAsync(stream, 411, Encoding.UTF8.GetBytes("{\"error\":\"chunked not supported\"}"), "application/json; charset=utf-8", origin);
+                return;
+            }
             if (contentLength < 0 || contentLength > MaxBodyBytes)
             {
                 await WriteResponseAsync(stream, 400, Encoding.UTF8.GetBytes("{\"error\":\"bad content-length\"}"), "application/json; charset=utf-8", origin);

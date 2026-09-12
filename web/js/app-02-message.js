@@ -411,7 +411,8 @@
             const msg = conv.messages.find(m => String(m.id) === String(messageId));
             if (!msg) return;
             const wantsJp = state.settings.ttsLang === 'japanese';
-            let textToSpeak = msg.text;
+            /* OCR S4：朗读不应包含场景标记 */
+            let textToSpeak = String(msg.text || '').replace(/<scene>[\s\S]*?<\/scene>/gi, ' ').replace(/<\/?scene>/gi, ' ').replace(/\s{2,}/g, ' ').trim();
             if (wantsJp) {
                 try {
                     textToSpeak = await ensureJapaneseVoiceText(msg);
@@ -1310,7 +1311,8 @@
                 automaticVoiceMessageKey = String(aiMessage.id);
                 pendingAutomaticVoiceMessageIds.add(automaticVoiceMessageKey);
 
-                let textToSpeak = wantsJp ? getJapaneseVoiceText(aiMessage) : response;
+                /* OCR S4：朗读不应包含场景标记 */
+                let textToSpeak = wantsJp ? getJapaneseVoiceText(aiMessage) : String(response || '').replace(/<scene>[\s\S]*?<\/scene>/gi, ' ').replace(/<\/?scene>/gi, ' ').trim();
                 const prepareVoiceText = async () => {
                     if (!wantsJp || textToSpeak) return;
                     try {

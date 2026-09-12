@@ -44,6 +44,11 @@ public class ElainaAccessibilityService extends AccessibilityService {
 
     @Override
     public void onAccessibilityEvent(AccessibilityEvent event) {
+        /* OCR S4：跳过自身应用（避免桌宠/主界面内容自反馈回灌） */
+        try {
+            CharSequence pkg = event.getPackageName();
+            if (pkg != null && getPackageName().contentEquals(pkg)) return;
+        } catch (Throwable ignored) { }
         if (event == null) return;
         int t = event.getEventType();
         if (t != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED && t != AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) return;
@@ -95,6 +100,9 @@ public class ElainaAccessibilityService extends AccessibilityService {
 
     @Override
     public boolean onUnbind(Intent intent) {
+        /* OCR S4：服务被系统停用时清空界面文本缓存，避免残留旧内容被继续读取 */
+        lastContextText = "";
+        lastEventAt = 0;
         /* 无障碍被停用：记录（体验层可提示重新开启；此处返回 true 让系统重绑） */
         String tag = "";
         return super.onUnbind(intent);

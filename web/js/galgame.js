@@ -21,15 +21,8 @@
   let pollTimer = null;
 
   function emotionFrom(text) {
-    let t = String(text || '');
-    if (/微笑|开心|高兴|嘿嘿|哈哈|愉快|喜悦/.test(t)) return 'happy';
-    if (/生气|哼|愤怒|恼火/.test(t)) return 'angry';
-    if (/疑惑|奇怪|嗯？/.test(t) || /\?\s*$/.test(t)) return 'confused';
-    if (/害羞|脸红|唔|呜/.test(t)) return 'shy';
-    if (/惊讶|吃惊|诶|哎|！/.test(t)) return 'surprised';
-    if (/无奈|叹气|唉/.test(t)) return 'resigned';
-    if (/无语|真是的|服了/.test(t)) return 'speechless';
-    if (/坏笑|狡黠|得意/.test(t)) return 'smirk';
+    /* OCR M3：统一走 ElainaEmotion */
+    try { if (window.ElainaEmotion) return window.ElainaEmotion.from(text); } catch (e) {}
     return null;
   }
   function avatarSrc(k) { return 'img/elaina/p_' + (EMO.indexOf(k) >= 0 ? k : 'calm') + '.png'; }
@@ -118,20 +111,26 @@
   }
   let fxParticles = [], fxRaf = null, fxMode = 'none';
 
-  /* ===== 粒子特效（星空 / 雨 / 樱花） ===== */
+  /* ===== 粒子特效（星空 / 雨 / 樱花 / 雪） ===== */
+  let fxResizeBound = false;
+  function resizeFxCanvas() {
+    try {
+      if (!fxCanvas) return;
+      fxCanvas.width = fxCanvas.clientWidth || window.innerWidth;
+      fxCanvas.height = fxCanvas.clientHeight || window.innerHeight;
+    } catch (e) {}
+  }
   function fxInit(mode) {
     fxMode = mode || 'none';
     if (!fxCanvas) return;
     if (fxRaf) { cancelAnimationFrame(fxRaf); fxRaf = null; }
     fxParticles = [];
     let ctx = fxCanvas.getContext('2d');
-    function resize() {
-      if (!fxCanvas) return;
-      fxCanvas.width = fxCanvas.clientWidth || window.innerWidth;
-      fxCanvas.height = fxCanvas.clientHeight || window.innerHeight;
+    resizeFxCanvas();
+    if (!fxResizeBound) {
+      fxResizeBound = true;
+      window.addEventListener('resize', resizeFxCanvas);   /* 只绑一次，避免 fxInit 反复调用导致监听器泄漏（OCR S7） */
     }
-    resize();
-    window.addEventListener('resize', resize);
     if (fxMode === 'none') { ctx.clearRect(0, 0, fxCanvas.width, fxCanvas.height); return; }
     let W0 = fxCanvas.width, H0 = fxCanvas.height;
     let count = fxMode === 'star' ? 140 : fxMode === 'rain' ? 180 : fxMode === 'snow' ? 150 : 60;
@@ -211,7 +210,6 @@
     let scale = Number(V.get('scale', '1')) || 1;
     if (layer) layer.style.setProperty('--gg-scale', String(scale));   /* 由 CSS calc 消费，避免被 !important 覆盖（OCR S5） */
     let sp = Number(V.get('speed', '24')) || 24;
-    layer.dataset.speed = String(sp);
   }
 
   /* ---------- 对话推进 ---------- */

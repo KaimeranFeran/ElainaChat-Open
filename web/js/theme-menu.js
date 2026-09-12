@@ -93,7 +93,6 @@
     menu.style.left = Math.max(10, left) + 'px';
     activeMenu = menu;
   }
-  const explode = new Set(['submit']);
   document.addEventListener('click', (e) => { if (activeMenu && !activeMenu.contains(e.target) && !(e.target.closest && e.target.closest('.sw-menu-btn, .sw-chev'))) closeMenu(); });
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeMenu(); });
   window.addEventListener('resize', closeMenu);
@@ -397,7 +396,6 @@
       const inp = document.getElementById('swGg' + k);
       if (!inp) return;
       inp.addEventListener('input', () => {
-        const suffix = k === 'Speed' ? '' : '%';
         const val = k === 'Alpha' ? Math.round(inp.value * 100) + '%' : (k === 'Scale' ? Math.round(inp.value * 100) + '%' : speedLabel(inp.value));
         const lb = document.getElementById('swGg' + k + 'Label');
         if (lb) lb.textContent = val;
@@ -596,6 +594,11 @@
     document.addEventListener('mousedown', onMouseDown);
     document.addEventListener('mousemove', pressMove);
     document.addEventListener('mouseup', pressEnd);
+    /* OCR S8：鼠标在窗口外松开 / 失焦 / 切后台时兜底复位，避免 seeking 永久卡死 */
+    window.addEventListener('blur', pressCancel);
+    document.addEventListener('visibilitychange', () => { if (document.hidden) pressCancel(); });
+    document.addEventListener('pointercancel', pressCancel);
+    document.addEventListener('mouseleave', () => { try { pressCancel(); } catch (e) {} });
     document.addEventListener('click', (ev) => {
       if (suppressed) { ev.stopPropagation(); ev.preventDefault(); }
     }, true);

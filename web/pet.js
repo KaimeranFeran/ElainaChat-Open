@@ -23,15 +23,8 @@
     emoTimer = setTimeout(function () { setEmotion('calm'); }, 4200);
   }
   function emotionFromText(text) {
-    let t = String(text || '');
-    if (/微笑|开心|高兴|嘿嘿|哈哈|愉快|开心|喜悦/ .test(t)) return 'happy';
-    if (/生气|哼|愤怒|恼火|气死/.test(t)) return 'angry';
-    if (/疑惑|奇怪|嗯？|？$/m.test(t) || /\?\s*$/.test(t)) return 'confused';
-    if (/害羞|脸红|唔|呜/.test(t)) return 'shy';
-    if (/惊讶|！|吃惊|诶|哎/.test(t)) return 'surprised';
-    if (/无奈|叹气|唉/.test(t)) return 'resigned';
-    if (/无语|真是的|服了/.test(t)) return 'speechless';
-    if (/坏笑|偷|狡黠|得意/.test(t)) return 'smirk';
+    /* OCR M3：统一走 ElainaEmotion（与 Galgame 表情一致） */
+    try { if (window.ElainaEmotion) return window.ElainaEmotion.from(text); } catch (e) {}
     return null;
   }
 

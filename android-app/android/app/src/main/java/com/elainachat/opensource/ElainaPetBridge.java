@@ -21,6 +21,10 @@ import java.nio.charset.StandardCharsets;
 public class ElainaPetBridge {
     public interface Callback { void onReply(String text, boolean error); }
 
+    /* OCR M6：单线程队列 —— 保证消息顺序、限制并发线程数（原实现每条消息 new Thread，回复可能乱序） */
+    private static final java.util.concurrent.ExecutorService CHAT_POOL =
+            java.util.concurrent.Executors.newSingleThreadExecutor();
+
     private final WebView webView;
     private volatile String baseUrl = "";
     private volatile String apiKey = "";
@@ -110,7 +114,7 @@ public class ElainaPetBridge {
     }
 
     private void chat(final String context, final String userText) {
-        new Thread(() -> {
+        CHAT_POOL.execute(() -> {
             try {
                 if (baseUrl.isEmpty()) { postToWeb("系统未配置网关地址，请先在 App 设置里填写"); return; }
                 JSONArray msgs = new JSONArray();
@@ -151,7 +155,7 @@ public class ElainaPetBridge {
             } catch (Exception e) {
                 postToWeb("连接失败：" + (e.getMessage() == null ? "网络错误" : e.getMessage()));
             }
-        }).start();
+        });
     }
 
     private String cut(String s, int max) { return s == null || s.length() <= max ? s : s.substring(0, max); }

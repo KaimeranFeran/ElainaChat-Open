@@ -9,7 +9,7 @@
         Background="Transparent"
         Topmost="False"
         ShowInTaskbar="True"
-        ResizeMode="CanResize"
+        ResizeMode="NoResize"
         WindowStartupLocation="CenterScreen"
         Loaded="Window_Loaded">
 
