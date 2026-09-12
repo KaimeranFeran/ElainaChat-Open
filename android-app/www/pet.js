@@ -114,6 +114,120 @@
   }
   strip.addEventListener('contextmenu', function (ev) { ev.preventDefault(); });
 
+  /* ===== 语音输入（与主界面同链路：麦克风→16k float32→网关 ASR→填入并发送） ===== */
+  var recCtx = null, recStream = null, recNode = null, recChunks = [], recActive = false, recTimer = null;
+  function ggCfg() {
+    var cfg = { baseUrl: '', apiKey: '' };
+    try {
+      if (window.PetBridge && typeof window.PetBridge.getConfig === 'function') {
+        var raw = window.PetBridge.getConfig();
+        var o = JSON.parse(raw || '{}');
+        cfg.baseUrl = o.baseUrl || ''; cfg.apiKey = o.apiKey || '';
+      }
+    } catch (e) {}
+    if (!cfg.baseUrl) {
+      try {
+        var st = JSON.parse(localStorage.getItem('elaina_settings') || '{}');
+        cfg.baseUrl = st.baseUrl || ''; cfg.apiKey = st.apiKey || '';
+      } catch (e) {}
+    }
+    /* PC 桌面：file:// 直连网关会被 CORS 拦，改走内置本地代理 */
+    try { if (window.chrome && window.chrome.webview) cfg.baseUrl = 'http://127.0.0.1:3500'; } catch (e) {}
+    return cfg;
+  }
+  function downsample(input, inRate, outRate) {
+    if (outRate === inRate) return input;
+    var ratio = inRate / outRate;
+    var len = Math.max(1, Math.floor(input.length / ratio));
+    var out = new Float32Array(len);
+    var off = 0;
+    for (var i = 0; i < len; i++) {
+      var next = Math.round((i + 1) * ratio);
+      var sum = 0, n = 0;
+      for (var k = off; k < next && k < input.length; k++) { sum += input[k]; n++; }
+      out[i] = n > 0 ? sum / n : 0;
+      off = next;
+    }
+    return out;
+  }
+  function mergeChunks(chunks) {
+    var total = 0;
+    chunks.forEach(function (c) { total += c.length; });
+    var merged = new Float32Array(total), off = 0;
+    chunks.forEach(function (c) { merged.set(c, off); off += c.length; });
+    return merged;
+  }
+  function stopVoiceInput(sendIt) {
+    recActive = false;
+    var btn = document.getElementById('petMic');
+    if (btn) btn.classList.remove('rec');
+    if (recTimer) { clearTimeout(recTimer); recTimer = null; }
+    try { if (recNode) { recNode.disconnect(); recNode.onaudioprocess = null; } } catch (e) {}
+    try { if (recStream) recStream.getTracks().forEach(function (t) { t.stop(); }); } catch (e) {}
+    try { if (recCtx) recCtx.close(); } catch (e) {}
+    recNode = null; recStream = null; recCtx = null;
+    if (!sendIt) { recChunks = []; return; }
+    var pcm = mergeChunks(recChunks);
+    recChunks = [];
+    if (pcm.length < 16000 * 0.15) { showTip('录音太短，请再说一次'); return; }
+    asrUpload(pcm);
+  }
+  function asrUpload(pcm) {
+    var cfg = ggCfg();
+    if (!cfg.baseUrl) { showTip('请先在设置里填写服务地址'); return; }
+    if (!cfg.apiKey) { showTip('请先在设置里填写使用 Key'); return; }
+    showTip('正在识别…');
+    fetch(cfg.baseUrl + '/api/asr-cloud-final', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/octet-stream',
+        'Authorization': 'Bearer ' + cfg.apiKey,
+        'X-ASR-Sample-Rate': '16000',
+        'X-ASR-Format': 'float32le'
+      },
+      body: pcm.buffer
+    }).then(function (r) { return r.json().catch(function () { return null; }).then(function (p) { return { ok: r.ok, p: p }; }); })
+      .then(function (res) {
+        var text = res.p && res.p.text ? String(res.p.text).trim() : '';
+        if (!res.ok || !text) { showTip('识别失败：' + ((res.p && (res.p.message || res.p.error)) || '请重试')); return; }
+        if (input) input.value = text;
+        showTip('识别完成，正在发送…');
+        send();
+      })
+      .catch(function (e) { showTip('识别请求失败：' + (e && e.message ? e.message : '网络错误')); });
+  }
+  function startVoiceInput() {
+    if (recActive) { stopVoiceInput(true); return; }
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { showTip('当前环境不支持麦克风'); return; }
+    navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } })
+      .then(function (stream) {
+        recStream = stream;
+        recChunks = [];
+        recCtx = new (window.AudioContext || window.webkitAudioContext)();
+        var src = recCtx.createMediaStreamSource(stream);
+        recNode = recCtx.createScriptProcessor(4096, 1, 1);
+        recNode.onaudioprocess = function (ev) {
+          if (!recActive) return;
+          var ch = ev.inputBuffer.getChannelData(0);
+          var copy = new Float32Array(ch.length);
+          copy.set(ch);
+          recChunks.push(downsample(copy, recCtx.sampleRate, 16000));
+        };
+        src.connect(recNode);
+        recNode.connect(recCtx.destination);
+        recActive = true;
+        var btn = document.getElementById('petMic');
+        if (btn) btn.classList.add('rec');
+        showTip('正在聆听… 再次点击结束并发送');
+        recTimer = setTimeout(function () { if (recActive) stopVoiceInput(true); }, 60000);
+      })
+      .catch(function (e) { showTip('麦克风不可用：' + (e && e.message ? e.message : '权限被拒绝')); });
+  }
+  try {
+    var micBtn = document.getElementById('petMic');
+    if (micBtn) micBtn.addEventListener('click', function (ev) { ev.stopPropagation(); startVoiceInput(); });
+  } catch (e) {}
+
   /* 返回主界面（仅 PC 桌面） */
   try {
     var backBtn = document.getElementById('petBackBtn');

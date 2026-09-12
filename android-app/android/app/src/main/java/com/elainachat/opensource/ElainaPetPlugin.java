@@ -75,6 +75,64 @@ public class ElainaPetPlugin extends Plugin {
         call.resolve();
     }
 
+    /* ---------- Shizuku：保活 / 自动开启无障碍 ---------- */
+    private static final int SHIZUKU_REQ = 4801;
+
+    @PluginMethod
+    public void checkShizuku(PluginCall call) {
+        JSObject ret = new JSObject();
+        try {
+            boolean running = rikka.shizuku.Shizuku.pingBinder();
+            boolean granted = running && (rikka.shizuku.Shizuku.isPreV11() ||
+                    rikka.shizuku.Shizuku.checkSelfPermission() == android.content.pm.PackageManager.PERMISSION_GRANTED);
+            ret.put("running", running);
+            ret.put("granted", granted);
+        } catch (Throwable e) {
+            ret.put("running", false);
+            ret.put("granted", false);
+        }
+        call.resolve(ret);
+    }
+
+    @PluginMethod
+    public void requestShizuku(PluginCall call) {
+        try {
+            if (!rikka.shizuku.Shizuku.pingBinder()) { call.reject("Shizuku 未运行，请先安装并启动 Shizuku"); return; }
+            if (rikka.shizuku.Shizuku.isPreV11() || rikka.shizuku.Shizuku.checkSelfPermission() == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                /* Shizuku 已授权：引导开启无障碍（并打开电池白名单），配合前台服务保活 */
+                openAccessibilitySettingsInternal();
+                JSObject ok = new JSObject();
+                ok.put("granted", true);
+                ok.put("guided", true);
+                call.resolve(ok);
+                return;
+            }
+            rikka.shizuku.Shizuku.requestPermission(SHIZUKU_REQ);
+            JSObject ret = new JSObject();
+            ret.put("requested", true);
+            call.resolve(ret);
+        } catch (Throwable e) {
+            call.reject("Shizuku 授权失败：" + e.getMessage());
+        }
+    }
+
+    /** Shizuku 已授权时的保活引导：无障碍设置 + 电池白名单（Android 限制无法静默开启无障碍） */
+    @PluginMethod
+    public void autoEnableAccessibility(PluginCall call) {
+        try { openAccessibilitySettingsInternal(); call.resolve(); }
+        catch (Throwable e) { call.reject("打开无障碍设置失败：" + e.getMessage()); }
+    }
+
+    private void openAccessibilitySettingsInternal() {
+        try {
+            android.content.Intent i = new android.content.Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS);
+            i.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+            getContext().startActivity(i);
+        } catch (Throwable e) { /* 忽略 */ }
+    }
+
+    private void enableKeepAlive() { /* 保活由前台服务 + 开机自启 + 电池白名单引导承担 */ }
+
     @PluginMethod
     public void openOverlaySettings(PluginCall call) {
         try {

@@ -1238,9 +1238,8 @@ html[data-theme="dark"] .sw-setting-nav .sw-seg.active {
   }
   #settingsContent { padding: 12px 14px 18px !important; }
   #settingsContent > section { padding: 12px 12px 14px !important; }
-  .sw-setting-nav { overflow-x: auto !important; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
-  .sw-setting-nav::-webkit-scrollbar { display: none; }
-  .sw-setting-nav .sw-seg { flex: 0 0 auto !important; padding: 0 14px !important; }
+  .sw-setting-nav { flex-wrap: wrap !important; overflow: visible !important; gap: 6px !important; }
+  .sw-setting-nav .sw-seg { flex: 1 1 auto !important; min-width: 76px !important; padding: 0 10px !important; font-size: 12.5px !important; }
   .btn-primary, .btn-secondary, .glass-button, .sw-menu-btn { min-height: 48px !important; }
   .sw-menu { min-width: min(238px, calc(100vw - 28px)) !important; }
   .modal-panel { border-radius: 20px !important; }

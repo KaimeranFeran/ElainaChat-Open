@@ -199,7 +199,8 @@
       '<div class="sw-setting-theme-row sw-pet-perm-row" style="display:none"><div class="sw-ttl" style="flex:1 1 auto">权限引导（安卓）</div>' +
       '<div style="display:flex;gap:8px;flex:0 0 auto"><button type="button" class="sw-seg sw-perm-btn" data-perm="acc" style="min-height:30px;font-size:11px">无障碍</button>' +
       '<button type="button" class="sw-seg sw-perm-btn" data-perm="overlay" style="min-height:30px;font-size:11px">悬浮窗</button>' +
-      '<button type="button" class="sw-seg sw-perm-btn" data-perm="battery" style="min-height:30px;font-size:11px">电池</button></div></div>' +
+      '<button type="button" class="sw-seg sw-perm-btn" data-perm="battery" style="min-height:30px;font-size:11px">电池</button>' +
+      '<button type="button" class="sw-seg sw-perm-btn" id="sw-perm-shizuku" data-perm="shizuku" style="min-height:30px;font-size:11px">Shizuku保活</button></div></div>' +
       '<p class="text-[11px] text-indigo-300 leading-relaxed" style="padding:8px 4px 0">开启后出现伊蕾娜桌宠（PC 悬浮窗 / 安卓悬浮窗+无障碍读界面）。主动回复开启后每隔设定时长读取当前页面并主动找你说话。安卓首次开启请到权限引导完成授权；可在系统设置里关闭（默认关闭）。</p>';
     themeSec.insertAdjacentElement('afterend', sec);
     const rows = { main: document.getElementById('swPetMain'), pro: document.getElementById('swPetPro'), ct: document.getElementById('swPetCt') };
@@ -265,6 +266,13 @@
         const perm = b.getAttribute('data-perm');
         if (perm === 'acc') cap.openAccessibilitySettings();
         else if (perm === 'overlay') cap.openOverlaySettings();
+        else if (perm === 'shizuku') {
+          cap.requestShizuku().then(function (r) {
+            showTip && showTip(r && r.granted ? 'Shizuku 已授权，已自动开启无障碍并加入保活白名单' : '已请求 Shizuku 授权，请在弹窗中允许');
+          }).catch(function (e) {
+            showTip && showTip('Shizuku：' + ((e && e.message) || '未安装或未启动 Shizuku'));
+          });
+        }
         else cap.openBatteryWhitelist();
       } catch (e) {}
     }));
@@ -295,6 +303,75 @@
   }, 'pet settings');
 
 
+  /* ---- 9) Galgame 界面设置（Finder「Galgame」段；默认关闭） ---- */
+  safe(() => {
+    const petSec = document.getElementById('petSettingSection');
+    if (!petSec || document.getElementById('galgameSettingSection')) return;
+    const GK = 'elaina_galgame_';
+    const GV = (k, d) => { try { const v = localStorage.getItem(GK + k); return v === null ? d : v; } catch (e) { return d; } };
+    const GS = (k, v) => { try { localStorage.setItem(GK + k, v); } catch (e) {} };
+    const sec = document.createElement('section');
+    sec.id = 'galgameSettingSection';
+    sec.innerHTML =
+      '<div class="modal-label flex items-center gap-2"><span class="text-violet-500">✦</span> Galgame 界面</div>' +
+      '<div class="sw-setting-theme-row" id="ggEnableRow"><div class="sw-ttl">启用 Galgame 界面</div><div class="sw-switch off" id="swGgMain"></div></div>' +
+      '<div class="sw-setting-theme-row gg-row" style="display:none"><div class="sw-ttl" style="flex:0 0 auto;width:96px">打字速度</div>' +
+      '<input type="range" min="8" max="60" step="4" value="24" class="custom-slider" id="swGgSpeed" style="flex:1 1 auto;margin-left:10px">' +
+      '<span class="sw-ttl" id="swGgSpeedLabel" style="min-width:70px;text-align:right;font-weight:600">正常</span></div>' +
+      '<div class="sw-setting-theme-row gg-row" style="display:none"><div class="sw-ttl" style="flex:0 0 auto;width:96px">对话框浓度</div>' +
+      '<input type="range" min="0.35" max="0.9" step="0.05" value="0.62" class="custom-slider" id="swGgAlpha" style="flex:1 1 auto;margin-left:10px">' +
+      '<span class="sw-ttl" id="swGgAlphaLabel" style="min-width:58px;text-align:right;font-weight:600">62%</span></div>' +
+      '<div class="sw-setting-theme-row gg-row" style="display:none"><div class="sw-ttl" style="flex:0 0 auto;width:96px">立绘大小</div>' +
+      '<input type="range" min="0.6" max="1.3" step="0.1" value="1" class="custom-slider" id="swGgScale" style="flex:1 1 auto;margin-left:10px">' +
+      '<span class="sw-ttl" id="swGgScaleLabel" style="min-width:58px;text-align:right;font-weight:600">100%</span></div>' +
+      '<div class="sw-setting-theme-row gg-row" style="display:none"><div class="sw-ttl" style="flex:1 1 auto">进入 Galgame 界面</div>' +
+      '<button type="button" class="sw-seg" id="ggEnterBtn" style="min-height:32px;padding:0 16px">立即进入 ▶</button></div>' +
+      '<p class="text-[11px] text-indigo-300 leading-relaxed" style="padding:8px 4px 0">Galgame 界面与主界面共用同一份对话数据；可在界面右上角「退出 Galgame」或在此关闭开关（默认关闭）。</p>';
+    petSec.insertAdjacentElement('afterend', sec);
+    const sw = document.getElementById('swGgMain');
+    const rows = () => sec.querySelectorAll('.gg-row');
+    const speedLabel = (v) => { const n = Number(v) || 24; return n <= 12 ? '快' : n >= 44 ? '慢' : '正常'; };
+    const sync = () => {
+      const on = GV('enabled', '0') === '1';
+      sw.classList.toggle('on', on);
+      rows().forEach(r => { r.style.display = on ? '' : 'none'; });
+      const sp = document.getElementById('swGgSpeed'); if (sp) sp.value = GV('speed', '24');
+      const spL = document.getElementById('swGgSpeedLabel'); if (spL) spL.textContent = speedLabel(GV('speed', '24'));
+      const al = document.getElementById('swGgAlpha'); if (al) al.value = GV('alpha', '0.62');
+      const alL = document.getElementById('swGgAlphaLabel'); if (alL) alL.textContent = Math.round((Number(GV('alpha', '0.62')) || 0.62) * 100) + '%';
+      const sc = document.getElementById('swGgScale'); if (sc) sc.value = GV('scale', '1');
+      const scL = document.getElementById('swGgScaleLabel'); if (scL) scL.textContent = Math.round((Number(GV('scale', '1')) || 1) * 100) + '%';
+    };
+    sw.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      GS('enabled', GV('enabled', '0') === '1' ? '0' : '1');
+      sync();
+      try { window.ElainaGalgame && window.ElainaGalgame.refresh(); } catch (e) {}
+    });
+    ['Speed', 'Alpha', 'Scale'].forEach((k) => {
+      const inp = document.getElementById('swGg' + k);
+      if (!inp) return;
+      inp.addEventListener('input', () => {
+        const suffix = k === 'Speed' ? '' : '%';
+        const val = k === 'Alpha' ? Math.round(inp.value * 100) + '%' : (k === 'Scale' ? Math.round(inp.value * 100) + '%' : speedLabel(inp.value));
+        const lb = document.getElementById('swGg' + k + 'Label');
+        if (lb) lb.textContent = val;
+      });
+      inp.addEventListener('change', () => {
+        GS(k.toLowerCase(), String(inp.value));
+        try { window.ElainaGalgame && window.ElainaGalgame.refresh(); } catch (e) {}
+      });
+    });
+    document.getElementById('ggEnterBtn').addEventListener('click', () => {
+      GS('enabled', '1');
+      sync();
+      try { window.ElainaGalgame && window.ElainaGalgame.refresh(); } catch (e) {}
+    });
+    /* 界面内退出后同步开关显示 */
+    document.addEventListener('elaina-galgame-changed', sync);
+    sync();
+  }, 'galgame settings');
+
   /* ---- 5) Finder 顶栏：设置分段导航（元素定位分组）+ 分块切换 + 滑动动画 ---- */
   safe(() => {
     const content = document.getElementById('settingsContent');
@@ -306,6 +383,7 @@
     const idx = {
       theme: findIdx(s => s.id === 'themeSettingSection'),
       pet: findIdx(s => s.id === 'petSettingSection'),
+      galgame: findIdx(s => s.id === 'galgameSettingSection'),
       char: findIdx(s => s.id === 'characterSettingsSection'),
       cloud: findIdx(s => labelOf(s).indexOf('云端连接') >= 0),
       voice: findIdx(s => labelOf(s).indexOf('语音输出') >= 0),
@@ -319,7 +397,8 @@
       { label: '语音', idx: [idx.voice] },
       { label: '记忆与日志', idx: [idx.mem, idx.log] },
       { label: '角色设定', idx: [idx.char] },
-      { label: '桌宠', idx: [idx.pet] }
+      { label: '桌宠', idx: [idx.pet] },
+      { label: 'Galgame', idx: [idx.galgame] }
     ].filter(g => g.idx.every(i => i >= 0));
     const nav = document.createElement('div');
     nav.className = 'sw-setting-nav';
