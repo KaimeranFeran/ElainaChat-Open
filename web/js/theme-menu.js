@@ -269,7 +269,18 @@
     document.querySelector('.sw-pet-enable-row .sw-switch').addEventListener('click', (ev) => {
       ev.stopPropagation();
       SK('enabled', PK('enabled', '0') === '1' ? '0' : '1');
-      syncRows();
+      /* OCR A2：与服务真实状态同步（服务停止时 Java 侧已置 enabled=false，避免开关仍显示"开"） */
+    try {
+      const cap = (window.Capacitor && Capacitor.Plugins && Capacitor.Plugins.ElainaPet) ? Capacitor.Plugins.ElainaPet : null;
+      if (cap && typeof cap.getStatus === 'function') {
+        cap.getStatus().then(function (st) {
+          try {
+            if (st && st.enabled === false && PK('enabled', '0') === '1') { SK('enabled', '0'); syncRows(); }
+          } catch (e) {}
+        }).catch(function () {});
+      }
+    } catch (e) {}
+    syncRows();
       notifyPet();
     });
     document.querySelector('.sw-pet-pro-row .sw-switch').addEventListener('click', (ev) => {

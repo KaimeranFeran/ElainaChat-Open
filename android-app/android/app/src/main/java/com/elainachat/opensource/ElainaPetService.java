@@ -57,8 +57,15 @@ public class ElainaPetService extends Service {
         startForegroundCompat();
     }
 
+    public static final String ACTION_STOP = "com.elainachat.opensource.STOP_PET";
+
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
+        if (intent != null && ACTION_STOP.equals(intent.getAction())) {
+            try { getSharedPreferences("elaina_pet", MODE_PRIVATE).edit().putBoolean("enabled", false).apply(); } catch (Throwable ignored) { }
+            stopSelf();
+            return START_NOT_STICKY;
+        }
         SharedPreferences sp = getSharedPreferences("elaina_pet", MODE_PRIVATE);
         boolean enabled = sp.getBoolean("enabled", false);
         if (!enabled) {
@@ -99,6 +106,12 @@ public class ElainaPetService extends Service {
                 .setSmallIcon(android.R.drawable.ic_menu_compass)
                 .setOngoing(true)
                 .setContentIntent(pi);
+        /* OCR A3：通知栏提供「停止桌宠」操作（Android 13+ 无需进设置） */
+        try {
+            Intent stopIntent = new Intent(this, ElainaPetService.class).setAction(ACTION_STOP);
+            PendingIntent stopPi = PendingIntent.getService(this, 1, stopIntent, PendingIntent.FLAG_IMMUTABLE);
+            builder.addAction(android.R.drawable.ic_menu_close_clear_cancel, "停止桌宠", stopPi);
+        } catch (Throwable ignored) { }
         Notification notif = builder.build();
         int type = 0;
         if (Build.VERSION.SDK_INT >= 34) startForeground(NOTIF_ID, notif, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE);
@@ -125,7 +138,8 @@ public class ElainaPetService extends Service {
                     PixelFormat.TRANSLUCENT);
             lp.gravity = Gravity.TOP | Gravity.RIGHT;
             lp.x = dp(8);
-            lp.y = dp(120);
+            /* OCR A4：按状态栏高度定位（刘海/挖孔机不再压边），并留出安全边距 */
+            lp.y = dp(12) + statusBarHeight();
 
             petParams = lp;   /* 提升为字段：输入焦点切换时需要动态改 flags */
             petView = new WebView(this);
@@ -267,6 +281,15 @@ public class ElainaPetService extends Service {
     }
     private int dp(int v) { return (int) (v * getResources().getDisplayMetrics().density + 0.5f); }
 
+    /** 状态栏高度（含刘海/挖孔安全区） */
+    private int statusBarHeight() {
+        try {
+            int id = getResources().getIdentifier("status_bar_height", "dimen", "android");
+            if (id > 0) return getResources().getDimensionPixelSize(id);
+        } catch (Throwable ignored) { }
+        return dp(24);
+    }
+
     /** 拖动时把悬浮窗钳制在屏幕内（gravity=TOP|RIGHT：x 为距右边缘距离） */
     private void clampToScreen(WindowManager.LayoutParams lp) {
         try {
@@ -305,6 +328,8 @@ public class ElainaPetService extends Service {
 
     @Override
     public void onDestroy() {
+        /* OCR A2：服务停止即把开关状态落回 false，避免主界面开关仍显示「开」 */
+        try { getSharedPreferences("elaina_pet", MODE_PRIVATE).edit().putBoolean("enabled", false).apply(); } catch (Throwable ignored) { }
         handler.removeCallbacksAndMessages(null);
         try {
             try { if (bridge != null) bridge.release(); } catch (Throwable ignored) { }   /* OCR 二轮 N7 */
