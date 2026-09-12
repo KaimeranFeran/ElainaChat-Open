@@ -1373,7 +1373,7 @@ html[data-theme="dark"] .voice-seek-track { background: rgba(255, 255, 255, 0.14
    v6 外观模板（设置「外观」Finder 栏切换；默认 iOS 蓝保持）
    模板：claude 陶土橙 / sage 鼠尾草 / sakura 樱花桃
    机制：html[data-theme-template] 覆盖变量 + 硬编码强调段
-   ============================================================
+   ============================================================ */
 
 html[data-theme-template="claude"] {
   --lg-primary: #d97757 !important;

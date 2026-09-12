@@ -204,9 +204,17 @@
                 console.log('[TTS] 语音仍在生成，点击复用当前任务');
                 return true;
             }
+            /* 保险：状态声称在播放/暂停，但实际已无音源（如拖动跳转后播放结束未复位）→ 复位状态并允许重新播放 */
+            var hasLiveSource = activeVoiceSession && activeVoiceSession.audioSources && activeVoiceSession.audioSources.size > 0;
+            var speakingNow = ('speechSynthesis' in window) && window.speechSynthesis.speaking;
+            if (!hasLiveSource && !speakingNow && (activeVoicePlaybackStatus === 'playing' || activeVoicePlaybackStatus === 'paused')) {
+                console.log('[TTS] 无活跃音源，复位播放状态以便重新播放');
+                setVoicePlaybackState(messageId, false);
+                return false;
+            }
             if (activeVoicePlaybackStatus === 'playing') {
                 activeVoicePlaybackStatus = 'paused';
-                try { window.__voicePlaybackStart = null; } catch (e) {}
+                try { window.__VoicePlaybackStartReset = true; window.__voicePlaybackStart = null; } catch (e) {}
                 updateVoicePlayerButton(messageId, 'paused');
                 if (_audioContext && _audioContext.state === 'running') await _audioContext.suspend().catch(() => {});
                 if ('speechSynthesis' in window && window.speechSynthesis.speaking && !window.speechSynthesis.paused) {

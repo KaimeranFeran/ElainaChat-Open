@@ -363,24 +363,29 @@
                 const duration = info.duration || info.buffer.duration || 0;
                 if (!duration) return { ok: false, reason: 'noduration' };
                 const offset = Math.max(0, Math.min(0.999, Number(ratio) || 0)) * duration;
+                const targetId = messageId != null ? String(messageId) : '';
                 /* 干净清场：停止旧源/终结旧 onEnd 链/关闭旧 context（避免 seek 后旧回调杀掉新播放） */
                 await stopActiveVoicePlayback();
+                try { if (typeof voicePlaybackTasksByMessageId !== 'undefined' && targetId) voicePlaybackTasksByMessageId.delete(targetId); } catch (e) {}
                 const ctx = getAudioContext();
-                try { if (ctx.state === 'suspended') await ctx.resume(); } catch (e) {}
+                /* 建立正规播放会话（与常规播放一致，保证暂停/清理/重播路径统一） */
+                const session = createVoiceSession(targetId || null);
+                activeVoiceSession = session;
                 const source = ctx.createBufferSource();
                 source.buffer = info.buffer;
                 source.connect(ctx.destination);
+                try { session.audioSources.add(source); } catch (e) {}
                 source.onended = () => {
-                    try { updateVoicePlayerButton(String(messageId || ''), 'idle'); } catch (e) {}
-                    try { activeVoicePlaybackStatus = 'idle'; activeVoicePlayerId = null; } catch (e) {}
+                    try { session.audioSources.delete(source); } catch (e) {}
+                    try { if (isVoiceSessionActive(session)) setVoicePlaybackState(targetId, false); } catch (e) {}
                 };
                 source.start(0, offset);
-                if (messageId) {
-                    activeVoicePlayerId = messageId;
+                if (targetId) {
+                    activeVoicePlayerId = targetId;
                     activeVoicePlaybackStatus = 'playing';
-                    try { updateVoicePlayerButton(messageId, 'playing'); } catch (e) {}
+                    try { updateVoicePlayerButton(targetId, 'playing'); } catch (e) {}
                 }
-                try { window.__voicePlaybackStart = { at: Date.now(), offset, duration, msgId: messageId }; window.__voicePlaybackRatio = ratio; } catch (e) {}
+                try { window.__voicePlaybackStart = { at: Date.now(), offset, duration, msgId: targetId }; window.__voicePlaybackRatio = ratio; } catch (e) {}
                 return { ok: true, offset, duration, at: Date.now() };
             } catch (e) {
                 return { ok: false, reason: String(e && e.message || e) };

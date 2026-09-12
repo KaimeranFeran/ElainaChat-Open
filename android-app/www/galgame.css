@@ -5,9 +5,57 @@
 #galgameLayer { position: fixed; inset: 0; z-index: 2000; display: none; overflow: hidden; font-family: "Outfit","PingFang SC","Microsoft YaHei",sans-serif; }
 #galgameLayer.on { display: block; }
 
-/* 背景：模糊立绘 + 暗角 */
-#ggBg { position: absolute; inset: -6%; background-color: #0b0f16; background-size: cover; background-position: 50% 22%; filter: blur(26px) saturate(1.15) brightness(.7); transform: scale(1.08); opacity: .85; }
-#ggBgMask { position: absolute; inset: 0; background: radial-gradient(ellipse at 50% 30%, rgba(5,8,14,.62) 0%, rgba(5,8,14,.88) 100%), linear-gradient(180deg, rgba(5,8,14,.72), rgba(5,8,14,.9)); }
+/* ==================== 场景背景系统（分层：天空 / 光晕 / 云 / 山影 / 地面 + 粒子） ==================== */
+#ggScene { position: absolute; inset: 0; overflow: hidden; }
+#ggScene .sky { position: absolute; inset: 0; }
+#ggScene .glow { position: absolute; width: 62vmax; height: 62vmax; border-radius: 50%; filter: blur(70px); opacity: .55; }
+#ggScene .clouds { position: absolute; inset: 0; opacity: .5;
+  background:
+    radial-gradient(38% 22% at 22% 26%, rgba(255,255,255,.55), transparent 70%),
+    radial-gradient(30% 16% at 64% 18%, rgba(255,255,255,.42), transparent 70%),
+    radial-gradient(46% 20% at 82% 34%, rgba(255,255,255,.35), transparent 72%); }
+#ggScene .hill-far { position: absolute; left: -4%; right: -4%; bottom: 20%; height: 34%; }
+#ggScene .hill-near { position: absolute; left: -6%; right: -6%; bottom: 12%; height: 26%; }
+#ggScene .ground { position: absolute; left: 0; right: 0; bottom: 0; height: 18%; }
+#ggScene .vignette { position: absolute; inset: 0; background: radial-gradient(ellipse at 50% 38%, transparent 42%, rgba(4,6,12,.62) 100%); }
+
+/* —— 黄昏旅途 —— */
+#ggScene.scene-dusk .sky { background: linear-gradient(180deg, #231634 0%, #5b3157 30%, #b8553f 58%, #e88b4e 76%, #ffd39a 100%); }
+#ggScene.scene-dusk .glow { left: 58%; bottom: 14%; background: radial-gradient(circle, #ffe6b0, #ff9d4d 42%, transparent 72%); }
+#ggScene.scene-dusk .hill-far { background: linear-gradient(180deg, rgba(90,58,88,.85), rgba(60,38,64,.95)); clip-path: polygon(0 46%, 12% 30%, 24% 40%, 38% 22%, 52% 36%, 66% 20%, 80% 34%, 92% 26%, 100% 38%, 100% 100%, 0 100%); }
+#ggScene.scene-dusk .hill-near { background: linear-gradient(180deg, #3b2740, #22162a); clip-path: polygon(0 58%, 14% 44%, 30% 54%, 46% 38%, 62% 52%, 78% 40%, 92% 52%, 100% 46%, 100% 100%, 0 100%); }
+#ggScene.scene-dusk .ground { background: linear-gradient(180deg, #1b1220, #120b16); }
+
+/* —— 星夜 —— */
+#ggScene.scene-night .sky { background: linear-gradient(180deg, #04081a 0%, #0a1330 42%, #16224a 72%, #263a68 100%); }
+#ggScene.scene-night .glow { right: 16%; top: 10%; width: 30vmax; height: 30vmax; opacity: .9; background: radial-gradient(circle, #f4f8ff, #b9ccff 40%, transparent 72%); }
+#ggScene.scene-night .clouds { opacity: .18; }
+#ggScene.scene-night .hill-far { background: linear-gradient(180deg, #1a2547, #0d1430); clip-path: polygon(0 52%, 16% 34%, 32% 46%, 48% 28%, 64% 44%, 80% 32%, 100% 44%, 100% 100%, 0 100%); }
+#ggScene.scene-night .hill-near { background: linear-gradient(180deg, #0e1733, #060b1c); clip-path: polygon(0 60%, 18% 46%, 34% 56%, 52% 42%, 70% 54%, 86% 44%, 100% 52%, 100% 100%, 0 100%); }
+#ggScene.scene-night .ground { background: linear-gradient(180deg, #070d1e, #04060f); }
+
+/* —— 雨夜窗前 —— */
+#ggScene.scene-rain .sky { background: linear-gradient(180deg, #0a1020 0%, #16223c 48%, #26344f 100%); }
+#ggScene.scene-rain .glow { left: 18%; top: 22%; width: 40vmax; height: 40vmax; opacity: .35; background: radial-gradient(circle, #cfe0ff, #6f8cc4 45%, transparent 72%); }
+#ggScene.scene-rain .hill-far { background: linear-gradient(180deg, #1c2742, #101830); clip-path: polygon(0 60%, 20% 48%, 40% 58%, 60% 46%, 80% 56%, 100% 48%, 100% 100%, 0 100%); }
+#ggScene.scene-rain .hill-near { background: linear-gradient(180deg, #101a33, #080e1e); clip-path: polygon(0 66%, 22% 56%, 44% 64%, 66% 54%, 88% 62%, 100% 56%, 100% 100%, 0 100%); }
+#ggScene.scene-rain .ground { background: linear-gradient(180deg, #0a1120, #05080f); }
+
+/* —— 樱花道 —— */
+#ggScene.scene-sakura .sky { background: linear-gradient(180deg, #ffe3ee 0%, #ffd0e0 38%, #ffe9d7 72%, #fff8ec 100%); }
+#ggScene.scene-sakura .glow { left: 70%; top: 8%; width: 34vmax; height: 34vmax; opacity: .75; background: radial-gradient(circle, #fff6f9, #ffc2d6 45%, transparent 72%); }
+#ggScene.scene-sakura .clouds { opacity: .65; }
+#ggScene.scene-sakura .hill-far { background: linear-gradient(180deg, rgba(255,190,214,.75), rgba(255,158,190,.55)); clip-path: polygon(0 54%, 16% 40%, 34% 50%, 52% 36%, 70% 48%, 86% 38%, 100% 50%, 100% 100%, 0 100%); }
+#ggScene.scene-sakura .hill-near { background: linear-gradient(180deg, rgba(214,150,190,.85), rgba(176,118,160,.9)); clip-path: polygon(0 62%, 20% 50%, 38% 60%, 58% 48%, 76% 58%, 92% 50%, 100% 58%, 100% 100%, 0 100%); }
+#ggScene.scene-sakura .ground { background: linear-gradient(180deg, #e8cfd8, #d9b8c6); }
+#ggScene.scene-sakura .vignette { background: radial-gradient(ellipse at 50% 38%, transparent 46%, rgba(120,80,100,.35) 100%); }
+
+/* 粒子层（星空/雨/樱） */
+#ggFx { position: absolute; inset: 0; pointer-events: none; }
+
+/* 立绘在场景之上 */
+#ggStage { z-index: 6; }
+#ggDialogWrap, #ggMenu, #ggInfo { z-index: 8; }
 
 /* 立绘舞台 */
 #ggStage { position: absolute; left: 0; right: 0; bottom: 168px; top: 0; display: flex; align-items: flex-end; justify-content: center; pointer-events: none; }

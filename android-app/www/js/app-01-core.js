@@ -165,7 +165,7 @@ ${DEFAULT_CHARACTER_PREFERENCES}
 
         const DEFAULT_SETTINGS = {
             apiProvider: 'gateway',
-            baseUrl: 'http://106.14.16.68',
+            baseUrl: 'https://elainachat.j3.ink',
             apiKey: '',
             model: 'MiniMax-M3',
             minimaxApiKey: '',
@@ -181,7 +181,7 @@ ${DEFAULT_CHARACTER_PREFERENCES}
             autoMemory: false,
             memoryEvery: 6
         };
-        const ANNOUNCEMENT_URL = 'http://106.14.16.68/announcement.json';
+        const ANNOUNCEMENT_URL = 'https://elainachat.j3.ink/announcement.json';
 
             const ELENA_QUOTES = [
         { text: '旅途的意义，不在于终点，而在于沿途遇见的每一个你。', source: '《魔女之旅》' },
