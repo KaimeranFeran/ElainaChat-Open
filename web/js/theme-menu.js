@@ -250,8 +250,7 @@
       const lb = document.getElementById('swPetIntervalLabel');
       if (lb) lb.textContent = iv + ' 分钟';
       syncScale();
-      const sc0 = GV('scene', 'dusk');
-      sec.querySelectorAll('.sw-gg-scene').forEach(b => b.classList.toggle('active', b.getAttribute('data-scene') === sc0));
+      renderSceneThumbs();
       const fx0 = GV('fx', 'auto');
       sec.querySelectorAll('.sw-gg-fx').forEach(b => b.classList.toggle('active', b.getAttribute('data-fx') === fx0));
     };
@@ -339,19 +338,16 @@
     sec.innerHTML =
       '<div class="modal-label flex items-center gap-2"><span class="text-violet-500">✦</span> Galgame 界面</div>' +
       '<div class="sw-setting-theme-row" id="ggEnableRow"><div class="sw-ttl">启用 Galgame 界面</div><div class="sw-switch off" id="swGgMain"></div></div>' +
-      '<div class="sw-setting-theme-row gg-row" style="display:none"><div class="sw-ttl" style="flex:0 0 auto;width:96px">背景场景</div>' +
-      '<div style="display:flex;gap:6px;flex:1 1 auto;margin-left:10px">' +
-      '<button type="button" class="sw-seg sw-gg-scene" data-scene="dusk" style="min-height:30px;flex:1;font-size:11px">黄昏</button>' +
-      '<button type="button" class="sw-seg sw-gg-scene" data-scene="night" style="min-height:30px;flex:1;font-size:11px">星夜</button>' +
-      '<button type="button" class="sw-seg sw-gg-scene" data-scene="rain" style="min-height:30px;flex:1;font-size:11px">雨夜</button>' +
-      '<button type="button" class="sw-seg sw-gg-scene" data-scene="sakura" style="min-height:30px;flex:1;font-size:11px">樱花</button></div></div>' +
+      '<div class="sw-setting-theme-row gg-row" style="display:none;flex-direction:column;align-items:stretch"><div class="sw-ttl" style="width:auto;margin-bottom:6px">背景场景</div>' +
+      '<div id="swGgSceneList" style="display:flex;gap:8px;overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:4px;scrollbar-width:none"></div></div>' +
       '<div class="sw-setting-theme-row gg-row" style="display:none"><div class="sw-ttl" style="flex:0 0 auto;width:96px">背景特效</div>' +
       '<div style="display:flex;gap:6px;flex:1 1 auto;margin-left:10px">' +
       '<button type="button" class="sw-seg sw-gg-fx" data-fx="auto" style="min-height:30px;flex:1;font-size:11px">随场景</button>' +
       '<button type="button" class="sw-seg sw-gg-fx" data-fx="none" style="min-height:30px;flex:1;font-size:11px">无</button>' +
       '<button type="button" class="sw-seg sw-gg-fx" data-fx="star" style="min-height:30px;flex:1;font-size:11px">星空</button>' +
       '<button type="button" class="sw-seg sw-gg-fx" data-fx="rain" style="min-height:30px;flex:1;font-size:11px">雨</button>' +
-      '<button type="button" class="sw-seg sw-gg-fx" data-fx="petal" style="min-height:30px;flex:1;font-size:11px">樱花</button></div></div>' +
+      '<button type="button" class="sw-seg sw-gg-fx" data-fx="petal" style="min-height:30px;flex:1;font-size:11px">樱花瓣</button>' +
+      '<button type="button" class="sw-seg sw-gg-fx" data-fx="snow" style="min-height:30px;flex:1;font-size:11px">雪</button></div></div>' +
       '<div class="sw-setting-theme-row gg-row" style="display:none"><div class="sw-ttl" style="flex:0 0 auto;width:96px">打字速度</div>' +
       '<input type="range" min="8" max="60" step="4" value="24" class="custom-slider" id="swGgSpeed" style="flex:1 1 auto;margin-left:10px">' +
       '<span class="sw-ttl" id="swGgSpeedLabel" style="min-width:70px;text-align:right;font-weight:600">正常</span></div>' +
@@ -399,16 +395,38 @@
         try { window.ElainaGalgame && window.ElainaGalgame.refresh(); } catch (e) {}
       });
     });
-    sec.querySelectorAll('.sw-gg-scene').forEach(b => b.addEventListener('click', () => {
-      GS('scene', b.getAttribute('data-scene'));
-      sync();
-      try { window.ElainaGalgame && window.ElainaGalgame.refresh(); } catch (e) {}
-    }));
     sec.querySelectorAll('.sw-gg-fx').forEach(b => b.addEventListener('click', () => {
       GS('fx', b.getAttribute('data-fx'));
       sync();
       try { window.ElainaGalgame && window.ElainaGalgame.refresh(); } catch (e) {}
     }));
+    function renderSceneThumbs() {
+      const box = document.getElementById('swGgSceneList');
+      if (!box) return;
+      const list = (window.ElainaGalgame && window.ElainaGalgame.bgs) ? window.ElainaGalgame.bgs() : [];
+      if (!list.length) { setTimeout(renderSceneThumbs, 400); return; }   /* galgame.js 可能尚未加载，稍后重试 */
+      const cur = GV('scene', list.length ? list[0][0] : '');
+      if (!box.dataset.built) {
+        box.innerHTML = list.map((it) => {
+          const f = it[0], name = it[1];
+          return '<button type="button" class="sw-gg-thumb" data-scene="' + f + '" title="' + name + '" style="flex:0 0 auto;padding:0;border:0;background:transparent;cursor:pointer">' +
+            '<img src="img/bg/' + f + '.jpg" alt="' + name + '" style="width:92px;height:52px;object-fit:cover;border-radius:10px;display:block;border:2px solid transparent;transition:border-color .15s ease, transform .15s ease">' +
+            '<div style="font-size:11px;margin-top:3px;color:var(--lg-ink-soft);text-align:center;max-width:92px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + name + '</div></button>';
+        }).join('');
+        box.dataset.built = '1';
+        box.querySelectorAll('.sw-gg-thumb').forEach(btn => btn.addEventListener('click', () => {
+          GS('scene', btn.getAttribute('data-scene'));
+          try { window.ElainaGalgame && window.ElainaGalgame.refresh(); } catch (e) {}
+          renderSceneThumbs();
+        }));
+      }
+      box.querySelectorAll('.sw-gg-thumb').forEach(btn => {
+        const img = btn.querySelector('img');
+        const on = btn.getAttribute('data-scene') === cur;
+        img.style.borderColor = on ? 'var(--lg-primary)' : 'transparent';
+        img.style.transform = on ? 'translateY(-2px)' : 'none';
+      });
+    }
     document.getElementById('ggEnterBtn').addEventListener('click', () => {
       GS('enabled', '1');
       sync();

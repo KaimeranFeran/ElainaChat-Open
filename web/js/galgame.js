@@ -15,6 +15,7 @@
   };
   var EMO = ['smirk', 'shy', 'calm', 'surprised', 'resigned', 'speechless', 'angry', 'confused', 'happy'];
   var layer = null, sceneEl = null, fxCanvas = null, avatar = null, nameEl = null, textEl = null, dialog = null, input = null, infoEl = null;
+  var GAL_SETTING_OPEN = false;
   var shownCount = 0;          // 已展示到对话框的消息条数
   var typeTimer = null, typing = false, lastMsgKey = '';
   var pollTimer = null;
@@ -58,8 +59,8 @@
     layer.id = 'galgameLayer';
     layer.innerHTML =
       '<div id="ggScene" class="scene-dusk">' +
-        '<div class="sky"></div><div class="glow"></div><div class="clouds"></div>' +
-        '<div class="hill-far"></div><div class="hill-near"></div><div class="ground"></div>' +
+        '<div class="bgA" style="position:absolute;inset:0;background-size:cover;background-position:center;transition:opacity .6s ease;opacity:1"></div>' +
+        '<div class="bgB" style="position:absolute;inset:0;background-size:cover;background-position:center;transition:opacity .6s ease;opacity:0"></div>' +
         '<canvas id="ggFx"></canvas><div class="vignette"></div>' +
       '</div>' +
       '<div id="ggStage"><img id="ggAvatar" src="' + avatarSrc('calm') + '" alt="伊蕾娜"></div>' +
@@ -90,9 +91,11 @@
       if (typing) { finishTyping(); return; }
       nextHistory();
     });
-    layer.querySelector('#ggExit').addEventListener('click', function (ev) { ev.stopPropagation(); setEnabled(false); });
+    layer.querySelector('#ggExit').addEventListener('click', function (ev) { ev.stopPropagation(); GAL_SETTING_OPEN = false; setEnabled(false); });
     layer.querySelector('#ggSettings').addEventListener('click', function (ev) {
       ev.stopPropagation();
+      GAL_SETTING_OPEN = true;
+      layer.classList.remove('on');   /* 设置面板层级低于 Galgame，先让位 */
       try { if (typeof openSettings === 'function') openSettings(); } catch (e) {}
     });
     layer.querySelector('#ggSpeech').addEventListener('click', function (ev) { ev.stopPropagation(); startVoice(); });
@@ -101,8 +104,18 @@
     input.addEventListener('click', function (ev) { ev.stopPropagation(); });
     layer.querySelector('#ggInputRow').classList.add('show');
   }
-  var SCENES = ['dusk', 'night', 'rain', 'sakura'];
-  var FX_MODES = ['none', 'star', 'rain', 'petal'];
+  /* 背景图库（web/img/bg/*.jpg，文件名 → 中文标签） */
+  var BGS = [["amusement_park","游乐园"],["amusement_plaza","游乐园广场"],["arcade","街机厅"],["bedroom","卧室"],["bedroom_cosy","温馨卧室"],["bedroom_morning","清晨卧室"],["cafe","咖啡厅"],["carousel","旋转木马"],["city_park","城市公园"],["clothing_shop","服装店"],["fastfood","快餐店"],["ferris_wheel","摩天轮"],["flashback","回忆"],["furniture_shop","家具店"],["kitchen","厨房"],["lake_trail_broken","雪湖栈道·破"],["lake_trail_snow","雪湖栈道"],["mall","商场"],["market","集市"],["restaurant","餐厅"],["rollercoaster","过山车"],["room_day","房间·白天"],["room_night","房间·夜晚"],["room_snow","房间·雪天"],["shooting_booth","拍立得亭"],["snowy_street","雪之街"],["street_dusk","黄昏街道"],["street_snow_night","雪夜街道"],["swan_lake","天鹅湖"],["swan_lake_pavilion","天鹅湖亭"]];
+  var BG_FILES = BGS.map(function (b) { return b[0]; });
+  var FX_MODES = ['auto', 'none', 'star', 'snow', 'rain', 'petal'];
+  function bgUrl(name) { return 'img/bg/' + name + '.jpg'; }
+  function autoFxFor(name) {
+    if (/night/.test(name)) return 'star';
+    if (/snow/.test(name)) return 'snow';
+    if (/rain/.test(name)) return 'rain';
+    if (/flashback/.test(name)) return 'star';
+    return 'none';
+  }
   var fxParticles = [], fxRaf = null, fxMode = 'none';
 
   /* ===== 粒子特效（星空 / 雨 / 樱花） ===== */
@@ -121,15 +134,15 @@
     window.addEventListener('resize', resize);
     if (fxMode === 'none') { ctx.clearRect(0, 0, fxCanvas.width, fxCanvas.height); return; }
     var W0 = fxCanvas.width, H0 = fxCanvas.height;
-    var count = fxMode === 'star' ? 140 : fxMode === 'rain' ? 180 : 60;
+    var count = fxMode === 'star' ? 140 : fxMode === 'rain' ? 180 : fxMode === 'snow' ? 150 : 60;
     for (var i = 0; i < count; i++) {
       fxParticles.push({
         x: Math.random() * W0,
         y: Math.random() * H0,
-        r: fxMode === 'petal' ? 4 + Math.random() * 5 : fxMode === 'rain' ? 1 : 0.6 + Math.random() * 1.6,
-        vx: fxMode === 'petal' ? -0.5 - Math.random() * 0.6 : fxMode === 'rain' ? -0.6 : 0,
-        vy: fxMode === 'petal' ? 0.5 + Math.random() * 0.7 : fxMode === 'rain' ? 8 + Math.random() * 6 : 0,
-        a: fxMode === 'star' ? 0.35 + Math.random() * 0.65 : 0.5 + Math.random() * 0.4,
+        r: fxMode === 'petal' ? 4 + Math.random() * 5 : fxMode === 'rain' ? 1 : fxMode === 'snow' ? 1.4 + Math.random() * 2.4 : 0.6 + Math.random() * 1.6,
+        vx: (fxMode === 'petal' || fxMode === 'snow') ? -0.5 - Math.random() * 0.6 : fxMode === 'rain' ? -0.6 : 0,
+        vy: fxMode === 'petal' ? 0.5 + Math.random() * 0.7 : fxMode === 'rain' ? 8 + Math.random() * 6 : fxMode === 'snow' ? 0.7 + Math.random() * 1.1 : 0,
+        a: fxMode === 'star' ? 0.35 + Math.random() * 0.65 : fxMode === 'snow' ? 0.5 + Math.random() * 0.5 : 0.5 + Math.random() * 0.4,
         tw: Math.random() * Math.PI * 2,
         hue: fxMode === 'petal' ? 340 + Math.random() * 20 : 0
       });
@@ -145,6 +158,9 @@
           ctx2.strokeStyle = 'rgba(190,215,255,' + (p.a * 0.55) + ')';
           ctx2.lineWidth = p.r;
           ctx2.beginPath(); ctx2.moveTo(p.x, p.y); ctx2.lineTo(p.x + p.vx * 1.6, p.y + p.vy * 0.6); ctx2.stroke();
+        } else if (fxMode === 'snow') {
+          ctx2.fillStyle = 'rgba(255,255,255,' + p.a + ')';
+          ctx2.beginPath(); ctx2.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx2.fill();
         } else if (fxMode === 'petal') {
           ctx2.fillStyle = 'hsla(' + p.hue + ',85%,82%,' + p.a + ')';
           ctx2.beginPath(); ctx2.ellipse(p.x, p.y, p.r, p.r * 0.62, p.tw, 0, Math.PI * 2); ctx2.fill();
@@ -164,17 +180,30 @@
 
   function applyOptions() {
     if (!layer) return;
-    /* 场景背景 */
+    /* 背景图（双层交叉淡入） */
     sceneEl = layer.querySelector('#ggScene');
     if (sceneEl) {
-      var sc = V.get('scene', 'dusk');
-      if (SCENES.indexOf(sc) < 0) sc = 'dusk';
-      SCENES.forEach(function (s) { sceneEl.classList.toggle('scene-' + s, s === sc); });
+      var sc = V.get('scene', '');
+      if (BG_FILES.indexOf(sc) < 0) sc = BG_FILES[0] || '';
+      var layerA = sceneEl.querySelector('.bgA'), layerB = sceneEl.querySelector('.bgB');
+      if (layerA && layerB) {
+        var cur = sceneEl.getAttribute('data-bg') || '';
+        if (cur !== sc) {
+          var top = sceneEl.getAttribute('data-top') === 'a' ? layerB : layerA;
+          var bottom = sceneEl.getAttribute('data-top') === 'a' ? layerA : layerB;
+          top.style.backgroundImage = 'url("' + bgUrl(sc) + '")';
+          top.style.opacity = '1';
+          bottom.style.opacity = '0';
+          sceneEl.setAttribute('data-top', sceneEl.getAttribute('data-top') === 'a' ? 'b' : 'a');
+          sceneEl.setAttribute('data-bg', sc);
+        }
+      }
     }
     /* 粒子特效 */
     fxCanvas = layer.querySelector('#ggFx');
     var fx = V.get('fx', 'auto');
-    if (fx === 'auto') fx = { dusk: 'none', night: 'star', rain: 'rain', sakura: 'petal' }[V.get('scene', 'dusk')] || 'none';
+    var curBg = (sceneEl && sceneEl.getAttribute('data-bg')) || BG_FILES[0] || '';
+    if (fx === 'auto') fx = autoFxFor(curBg);
     if (FX_MODES.indexOf(fx) < 0) fx = 'none';
     fxInit(fx);
     var alpha = Number(V.get('alpha', '0.62')) || 0.62;
@@ -329,19 +358,67 @@
     if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
   }
 
+  /* ---------- 设置面板：背景场景缩略图选择器（自管理，轮询兜底） ---------- */
+  function fillScenePicker() {
+    try {
+      var box = document.getElementById('swGgSceneList');
+      if (!box || box.dataset.filled === '1' || !BGS.length) return;
+      var cur = V.get('scene', BGS[0][0]);
+      if (!BG_FILES.length) return;
+      if (BG_FILES.indexOf(cur) < 0) cur = BG_FILES[0];
+      box.innerHTML = BGS.map(function (it) {
+        var f = it[0], name = it[1];
+        return '<button type="button" class="sw-gg-thumb" data-scene="' + f + '" title="' + name + '" style="flex:0 0 auto;padding:0;border:0;background:transparent;cursor:pointer">' +
+          '<img src="' + bgUrl(f) + '" alt="' + name + '" style="width:92px;height:52px;object-fit:cover;border-radius:10px;display:block;border:2px solid transparent;transition:border-color .15s ease, transform .15s ease">' +
+          '<div style="font-size:11px;margin-top:3px;color:var(--lg-ink-soft);text-align:center;max-width:92px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + name + '</div></button>';
+      }).join('');
+      box.dataset.filled = '1';
+      box.querySelectorAll('.sw-gg-thumb').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          V.set('scene', btn.getAttribute('data-scene'));
+          refresh();
+          markPicker();
+        });
+      });
+      markPicker();
+    } catch (e) {}
+  }
+  function markPicker() {
+    try {
+      var box = document.getElementById('swGgSceneList');
+      if (!box) return;
+      var cur = V.get('scene', BG_FILES[0] || '');
+      if (BG_FILES.indexOf(cur) < 0) cur = BG_FILES[0] || '';
+      box.querySelectorAll('.sw-gg-thumb').forEach(function (btn) {
+        var img = btn.querySelector('img');
+        var on = btn.getAttribute('data-scene') === cur;
+        if (img) { img.style.borderColor = on ? 'var(--lg-primary)' : 'transparent'; img.style.transform = on ? 'translateY(-2px)' : 'none'; }
+      });
+    } catch (e) {}
+  }
+  function refresh() { applyOptions(); if (V.enabled()) open(); }
+
   /* ---------- 对外接口 + 启动 ---------- */
   window.ElainaGalgame = {
+    bgs: function () { return BGS.slice(); },
     isEnabled: V.enabled,
     setEnabled: setEnabled,
     toggle: function () { setEnabled(!V.enabled()); },
-    refresh: function () { applyOptions(); if (V.enabled()) open(); }
+    refresh: refresh
   };
   function boot() {
     build();
+    setInterval(fillScenePicker, 900);
     /* 监听设置变化（同页 localStorage 改变不会触发 storage 事件，用轮询兜底） */
     setInterval(function () {
       var on = V.enabled();
       var showing = layer && layer.classList.contains('on');
+      if (GAL_SETTING_OPEN) {
+        var ov = document.getElementById('settingsOverlay');
+        var closed = !ov || ov.classList.contains('hidden');
+        if (closed) { GAL_SETTING_OPEN = false; if (on) open(); }
+        return;
+      }
       if (on && !showing) open();
       else if (!on && showing) close();
     }, 800);
