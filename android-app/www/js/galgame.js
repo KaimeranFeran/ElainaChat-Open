@@ -271,6 +271,7 @@
     var key = msgKey(last);
     if (!force && key === lastMsgKey) return;
     lastMsgKey = key;
+    if (last.role !== 'user') applySceneFromText(last.text);
     renderMsg(last, true);
     shownCount = list.length;
     var c = conv();
@@ -335,6 +336,7 @@
   }
   function open() {
     build();
+    syncSceneHint();
     applyOptions();
     layer.classList.add('on');
     var list = visibleMessages();
@@ -353,9 +355,67 @@
     }, 600);
   }
   function close() {
+    try { window.__galgameSceneHint = ''; } catch (e) {}
     if (layer) layer.classList.remove('on');
     if (typeTimer) { clearInterval(typeTimer); typeTimer = null; typing = false; }
     if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+  }
+
+  /* ---------- AI 自主选择背景 ---------- */
+  function sceneAliases() {
+    var map = {};
+    BGS.forEach(function (b) {
+      map[b[1]] = b[0];            /* 中文名 → 文件 */
+      map[b[0]] = b[0];            /* 英文 id → 文件 */
+      map[b[0].replace(/_/g, '')] = b[0];
+    });
+    /* 常见简称补充 */
+    var extra = { '咖啡': 'cafe', '咖啡店': 'cafe', '卧室': 'bedroom', '房间': 'room_day', '卧室·白天': 'room_day',
+      '夜晚房间': 'room_night', '雪夜': 'street_snow_night', '雪街': 'snowy_street', '街道': 'street_dusk',
+      '游乐园': 'amusement_park', '摩天轮': 'ferris_wheel', '旋转木马': 'carousel', '过山车': 'rollercoaster',
+      '商场': 'mall', '集市': 'market', '市场': 'market', '餐厅': 'restaurant', '快餐': 'fastfood',
+      '厨房': 'kitchen', '湖边': 'swan_lake', '湖': 'swan_lake', '天鹅湖': 'swan_lake', '公园': 'city_park',
+      '服装店': 'clothing_shop', '家具店': 'furniture_shop', '街机': 'arcade', '游戏厅': 'arcade',
+      '回忆': 'flashback', '雪湖': 'lake_trail_snow', '栈道': 'lake_trail_snow' };
+    for (var k in extra) map[k] = extra[k];
+    return map;
+  }
+  var SCENE_MAP = null;
+  function extractScene(text) {
+    var m = String(text || '').match(/<scene>\s*([\s\S]*?)\s*<\/scene>/i);
+    if (!m) return null;
+    var raw = String(m[1]).trim();
+    if (!raw) return null;
+    if (!SCENE_MAP) SCENE_MAP = sceneAliases();
+    if (SCENE_MAP[raw]) return SCENE_MAP[raw];
+    /* 模糊匹配：包含关系 */
+    for (var k in SCENE_MAP) { if (raw.indexOf(k) >= 0 || k.indexOf(raw) >= 0) return SCENE_MAP[k]; }
+    return null;
+  }
+  function aiBgEnabled() { return V.get('aiBg', '1') === '1'; }
+  function applySceneFromText(text) {
+    if (!aiBgEnabled()) return false;
+    var file = extractScene(text);
+    if (!file) return false;
+    if (V.get('scene', '') === file) return false;
+    V.set('scene', file);
+    applyOptions();
+    markPicker();
+    showTip('场景切换：' + (function () { var n = file; BGS.forEach(function (b) { if (b[0] === file) n = b[1]; }); return n; })());
+    return true;
+  }
+  /* 场景指令（注入 system，让 AI 自主决定何时切换） */
+  function syncSceneHint() {
+    try {
+      if (V.enabled() && aiBgEnabled()) {
+        var names = BGS.map(function (b) { return b[1]; }).join('、');
+        window.__galgameSceneHint = '# 场景切换（内部指令，不要向用户解释）\n' +
+          '当前为 Galgame 界面，背景场景可由你决定。当剧情明显进入新的地点或时段时，请在回复的**最后单独一行**输出场景标记：<scene>场景名</scene>；' +
+          '如果场景没有变化，不要输出该标记，也不要在正文里提到它。\n可选场景名（必须从其中选择）：' + names + '。';
+      } else {
+        window.__galgameSceneHint = '';
+      }
+    } catch (e) {}
   }
 
   /* ---------- 设置面板：背景场景缩略图选择器（自管理，轮询兜底） ---------- */
@@ -396,7 +456,7 @@
       });
     } catch (e) {}
   }
-  function refresh() { applyOptions(); if (V.enabled()) open(); }
+  function refresh() { applyOptions(); syncSceneHint(); if (V.enabled()) { open(); } }
 
   /* ---------- 对外接口 + 启动 ---------- */
   window.ElainaGalgame = {

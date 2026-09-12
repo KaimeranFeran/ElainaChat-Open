@@ -2023,3 +2023,31 @@ html[data-theme="dark"] .markdown-body .katex-html::after { color: #eef2f7; }
 html[data-theme="dark"] .bubble-user .msg-text { color: #eef2f7 !important; }
 .bubble-ai .msg-text { color: #1f2b40 !important; }
 html[data-theme="dark"] .bubble-ai .msg-text { color: #eef2f7 !important; }
+
+/* ============ 权限引导按钮（设置·桌宠段）—— 明确的可点击按钮样式 ============ */
+.sw-pet-perm-row { flex-wrap: wrap !important; gap: 10px !important; }
+.sw-perm-btn {
+  min-height: 34px !important;
+  padding: 0 14px !important;
+  border-radius: 11px !important;
+  font-size: 12.5px !important;
+  font-weight: 600 !important;
+  color: var(--lg-primary) !important;
+  background: rgba(255, 255, 255, 0.9) !important;
+  border: 1px solid var(--lg-primary) !important;
+  outline: 1px solid rgba(255, 255, 255, 0.7);
+  box-shadow: 0 3px 10px rgba(0, 100, 220, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.95) !important;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform .16s cubic-bezier(.3,1.35,.5,1), background .16s ease, box-shadow .16s ease;
+}
+.sw-perm-btn:hover { background: var(--lg-primary) !important; color: #fff !important; transform: translateY(-1px); }
+.sw-perm-btn:active { transform: scale(.95); box-shadow: 0 1px 4px rgba(0, 100, 220, 0.2) !important; }
+html[data-theme="dark"] .sw-perm-btn {
+  background: rgba(10, 132, 255, 0.16) !important;
+  border-color: rgba(90, 170, 255, 0.75) !important;
+  color: #6fb4ff !important;
+}
+@media (max-width: 560px) {
+  .sw-perm-btn { flex: 1 1 44% !important; min-height: 38px !important; font-size: 13px !important; }
+}

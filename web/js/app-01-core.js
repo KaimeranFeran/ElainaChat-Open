@@ -907,7 +907,7 @@ ${memoryBlock}
             const repetitionRetryPrompt = buildRoleplayRepetitionRetryPrompt(options);
             if (repetitionRetryPrompt) systemParts.push(repetitionRetryPrompt);
             systemParts.push(ROLEPLAY_TURN_ANCHOR);
-            const messages = [{ role: 'system', content: systemParts.join('\n\n') }];
+            const messages = [{ role: 'system', content: systemParts.join('\n\n') + (window.__galgameSceneHint ? ('\n\n' + window.__galgameSceneHint) : '') }];
             messages.push(...getRecentHistoryMessages(text));
             const userText = String(text || '').trim();
             const userContent = imageDataUrl ? [

@@ -251,6 +251,8 @@
       if (lb) lb.textContent = iv + ' 分钟';
       syncScale();
       renderSceneThumbs();
+      const sg = document.getElementById('swGgAiBg');
+      if (sg) sg.classList.toggle('on', GV('aiBg', '1') === '1');
       const fx0 = GV('fx', 'auto');
       sec.querySelectorAll('.sw-gg-fx').forEach(b => b.classList.toggle('active', b.getAttribute('data-fx') === fx0));
     };
@@ -340,6 +342,7 @@
       '<div class="sw-setting-theme-row" id="ggEnableRow"><div class="sw-ttl">启用 Galgame 界面</div><div class="sw-switch off" id="swGgMain"></div></div>' +
       '<div class="sw-setting-theme-row gg-row" style="display:none;flex-direction:column;align-items:stretch"><div class="sw-ttl" style="width:auto;margin-bottom:6px">背景场景</div>' +
       '<div id="swGgSceneList" style="display:flex;gap:8px;overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:4px;scrollbar-width:none"></div></div>' +
+      '<div class="sw-setting-theme-row gg-row" id="ggAiBgRow" style="display:none"><div class="sw-ttl" style="flex:1 1 auto">背景跟随 AI（由剧情自动切换）</div><div class="sw-switch on" id="swGgAiBg"></div></div>' +
       '<div class="sw-setting-theme-row gg-row" style="display:none"><div class="sw-ttl" style="flex:0 0 auto;width:96px">背景特效</div>' +
       '<div style="display:flex;gap:6px;flex:1 1 auto;margin-left:10px">' +
       '<button type="button" class="sw-seg sw-gg-fx" data-fx="auto" style="min-height:30px;flex:1;font-size:11px">随场景</button>' +
@@ -427,6 +430,13 @@
         img.style.transform = on ? 'translateY(-2px)' : 'none';
       });
     }
+    const aiBgSw = document.getElementById('swGgAiBg');
+    aiBgSw.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      GS('aiBg', GV('aiBg', '1') === '1' ? '0' : '1');
+      aiBgSw.classList.toggle('on', GV('aiBg', '1') === '1');
+      try { window.ElainaGalgame && window.ElainaGalgame.refresh(); } catch (e) {}
+    });
     document.getElementById('ggEnterBtn').addEventListener('click', () => {
       GS('enabled', '1');
       sync();
