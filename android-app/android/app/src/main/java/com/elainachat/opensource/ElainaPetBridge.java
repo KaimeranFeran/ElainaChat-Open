@@ -21,8 +21,8 @@ import java.nio.charset.StandardCharsets;
 public class ElainaPetBridge {
     public interface Callback { void onReply(String text, boolean error); }
 
-    /* OCR M6：单线程队列 —— 保证消息顺序、限制并发线程数（原实现每条消息 new Thread，回复可能乱序） */
-    private static final java.util.concurrent.ExecutorService CHAT_POOL =
+    /* 单实例单线程队列：保证消息顺序；服务重启时不会被旧请求永久阻塞。 */
+    private final java.util.concurrent.ExecutorService chatPool =
             java.util.concurrent.Executors.newSingleThreadExecutor();
 
     private final WebView webView;
@@ -36,8 +36,25 @@ public class ElainaPetBridge {
     private final java.util.function.Consumer<Boolean> onInputFocus;
     private volatile String model = "mini-max-m3";
     private volatile boolean destroyed = false;   /* OCR 二轮 N7：服务销毁后不再回调已 destroy 的 WebView */
+    private volatile HttpURLConnection activeConnection;
+    private volatile boolean pageReady = false;
+    private final java.util.concurrent.ConcurrentLinkedQueue<String> pendingReplies =
+            new java.util.concurrent.ConcurrentLinkedQueue<>();
 
-    public void release() { destroyed = true; }
+    public void release() {
+        destroyed = true;
+        pageReady = false;
+        pendingReplies.clear();
+        try { if (activeConnection != null) activeConnection.disconnect(); } catch (Throwable ignored) { }
+        try { chatPool.shutdownNow(); } catch (Throwable ignored) { }
+    }
+
+    /** WebView 完成 asset 页面加载后调用，避免网络返回早于 JS 初始化而丢回复。 */
+    public void markPageReady() {
+        if (destroyed) return;
+        pageReady = true;
+        flushPendingReplies();
+    }
 
     public ElainaPetBridge(WebView webView, Runnable onOpenApp) {
         this(webView, onOpenApp, null, null, null);
@@ -117,7 +134,7 @@ public class ElainaPetBridge {
     }
 
     private void chat(final String context, final String userText) {
-        CHAT_POOL.execute(() -> {
+        try { chatPool.execute(() -> {
             try {
                 if (baseUrl.isEmpty()) { postToWeb("系统未配置网关地址，请先在 App 设置里填写"); return; }
                 JSONArray msgs = new JSONArray();
@@ -140,10 +157,13 @@ public class ElainaPetBridge {
                 body.put("messages", msgs);
 
                 HttpURLConnection conn = (HttpURLConnection) new URL(baseUrl + "/api/chat/completions").openConnection();
+                activeConnection = conn;
                 conn.setConnectTimeout(15000);
                 conn.setReadTimeout(120000);
                 conn.setRequestMethod("POST");
                 conn.setRequestProperty("Content-Type", "application/json; charset=utf-8");
+                conn.setRequestProperty("Accept", "application/json");
+                conn.setUseCaches(false);
                 if (!apiKey.isEmpty()) conn.setRequestProperty("Authorization", "Bearer " + apiKey);
                 conn.setDoOutput(true);
                 try (OutputStream os = conn.getOutputStream()) {
@@ -153,12 +173,33 @@ public class ElainaPetBridge {
                 String raw = readStream(code >= 400 ? conn.getErrorStream() : conn.getInputStream());
                 if (code >= 400) { postToWeb("网关返回 [" + code + "]，请检查 Key / 地址"); return; }
                 JSONObject root = new JSONObject(raw);
-                String content = root.optJSONArray("choices").optJSONObject(0).optJSONObject("message").optString("content", "");
+                JSONArray choices = root.optJSONArray("choices");
+                JSONObject first = choices == null ? null : choices.optJSONObject(0);
+                JSONObject message = first == null ? null : first.optJSONObject("message");
+                String content = extractContent(message == null ? null : message.opt("content"));
                 postToWeb(content.isEmpty() ? "（伊蕾娜没有说话）" : content);
             } catch (Exception e) {
                 postToWeb("连接失败：" + (e.getMessage() == null ? "网络错误" : e.getMessage()));
+            } finally {
+                activeConnection = null;
             }
-        });
+        }); } catch (java.util.concurrent.RejectedExecutionException ignored) { }
+    }
+
+    private String extractContent(Object value) {
+        if (value == null || value == JSONObject.NULL) return "";
+        if (value instanceof String) return ((String) value).trim();
+        if (value instanceof JSONArray) {
+            StringBuilder out = new StringBuilder();
+            JSONArray parts = (JSONArray) value;
+            for (int i = 0; i < parts.length(); i++) {
+                Object part = parts.opt(i);
+                if (part instanceof String) out.append(part);
+                else if (part instanceof JSONObject) out.append(((JSONObject) part).optString("text", ""));
+            }
+            return out.toString().trim();
+        }
+        return String.valueOf(value).trim();
     }
 
     private String cut(String s, int max) { return s == null || s.length() <= max ? s : s.substring(0, max); }
@@ -175,9 +216,18 @@ public class ElainaPetBridge {
 
     private void postToWeb(final String text) {
         if (destroyed) return;
+        if (!pageReady) {
+            pendingReplies.add(text == null ? "" : text);
+            return;
+        }
         new Handler(Looper.getMainLooper()).post(() -> {
             if (destroyed) return;
             webView.evaluateJavascript("window.PetOnReply && window.PetOnReply(" + JSONObject.quote(text) + ")", null);
         });
+    }
+
+    private void flushPendingReplies() {
+        String text;
+        while ((text = pendingReplies.poll()) != null) postToWeb(text);
     }
 }

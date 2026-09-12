@@ -115,7 +115,7 @@ public class ElainaPetService extends Service {
             try { petScale = Math.max(0.6f, Math.min(1.6f, Float.parseFloat(sp.getString("scale", "1")))); } catch (Exception e) { petScale = 1f; }
             boolean clickthrough = sp.getBoolean("clickthrough", false);
             int petFlags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL;
-            if (clickthrough) petFlags |= WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
+            /* 桌宠包含输入框，不能把整个 Overlay 设为 NOT_TOUCHABLE；否则触摸会穿透到后面的应用，输入框永远无法获得焦点。 */
             WindowManager.LayoutParams lp = new WindowManager.LayoutParams(
                     dp((int) (300 * petScale)), dp((int) (470 * petScale)),
                     (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
@@ -142,6 +142,11 @@ public class ElainaPetService extends Service {
 
             /* 安全：导航白名单 —— file:///android_asset/... 的 authority 为空，android_asset 在 path 上（OCR 二轮 1） */
             petView.setWebViewClient(new android.webkit.WebViewClient() {
+                @Override
+                public void onPageFinished(WebView view, String url) {
+                    if (bridge != null) bridge.markPageReady();
+                }
+
                 @Override
                 public boolean shouldOverrideUrlLoading(WebView view, android.webkit.WebResourceRequest request) {
                     android.net.Uri u = request.getUrl();
