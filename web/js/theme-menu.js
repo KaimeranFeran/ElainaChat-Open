@@ -223,6 +223,8 @@
       '<input type="range" min="5" max="60" step="5" value="15" class="custom-slider sw-pet-interval-slider" id="swPetInterval" style="flex:1 1 auto;margin-left:10px">' +
       '<span class="sw-ttl" id="swPetIntervalLabel" style="font-weight:600;min-width:72px;text-align:right">15 分钟</span></div>' +
       '<div class="sw-setting-theme-row sw-pet-scale-row" style="display:none"><div class="sw-ttl" style="flex:0 0 auto;width:96px">桌宠尺度</div>' +
+      '<div class="sw-setting-theme-row"><div class="sw-ttl">允许拖动桌宠</div><div class="sw-switch" id="swPetDraggable"></div></div>' +
+
       '<input type="range" min="0.6" max="1.6" step="0.1" value="1" class="custom-slider" id="swPetScale" style="flex:1 1 auto;margin-left:10px">' +
       '<span class="sw-ttl" id="swPetScaleLabel" style="min-width:56px;text-align:right;font-weight:600">100%</span></div>' +
       '<div class="sw-setting-theme-row sw-pet-ct-row" style="display:none"><div class="sw-ttl">内容点击穿透</div><div class="sw-switch off" id="swPetCt"></div></div>' +
@@ -299,6 +301,30 @@
       if (lb) lb.textContent = inp.value + ' 分钟';
     });
     inp.addEventListener('change', () => { SK('interval', String(inp.value)); notifyPet(); });
+    /* 拖动开关（安卓悬浮窗位置可调） */
+
+    const dragSw = document.getElementById('swPetDraggable');
+
+    if (dragSw) {
+
+      const paint = () => dragSw.classList.toggle('on', PK('draggable', '1') === '1');
+
+      paint();
+
+      dragSw.addEventListener('click', () => {
+
+        const next = PK('draggable', '1') !== '1';
+
+        SK('draggable', next ? '1' : '0');
+
+        paint();
+
+        notifyPet();
+
+      });
+
+    }
+
     const scaleInp = document.getElementById('swPetScale');
     scaleInp.addEventListener('input', () => {
       const lb = document.getElementById('swPetScaleLabel');
@@ -338,7 +364,9 @@
             proactive: PK('proactive', '0') === '1',
             scale: Number(PK('scale', '1')) || 1,
             model: (function(){ try { return (state.settings && state.settings.model) || ''; } catch(e){ return ''; } })(),
-          clickthrough: PK('clickthrough', '0') === '1'
+          clickthrough: PK('clickthrough', '0') === '1',
+
+          draggable: PK('draggable', '1') === '1'
           });
         }
       } catch (e) {}

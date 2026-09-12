@@ -43,6 +43,7 @@ public class ElainaPetPlugin extends Plugin {
         int interval = o.optInt("interval", 15);
         boolean proactive = o.optBoolean("proactive", false);
         String model = o.optString("model", "");
+        boolean draggable = o.optBoolean("draggable", true);   /* OCR POS-plugin */
         // scale / clickthrough 在下方随 o.opt... 存取
         sp().edit()
                 .putBoolean("enabled", enabled)
@@ -54,7 +55,10 @@ public class ElainaPetPlugin extends Plugin {
                 .putFloat("scale", (float) Math.max(0.6, Math.min(1.6, o.optDouble("scale", 1.0))))
                 .putBoolean("clickthrough", o.optBoolean("clickthrough", false))
                 .putString("model", model)
+                .putBoolean("draggable", draggable)
                 .apply();
+        /* 服务已在运行 → 立刻应用新尺寸/拖动开关（不必重启） */
+        try { ElainaPetService.applyConfigFromPrefs(); } catch (Throwable ignored) { }
         /* 悬浮窗权限预检：未授权先引导，避免服务启动后自杀（前台通知闪现） */
         if (enabled && !android.provider.Settings.canDrawOverlays(getContext())) {
             openOverlaySettingsInternal();

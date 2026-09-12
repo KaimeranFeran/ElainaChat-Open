@@ -137,9 +137,10 @@ public class ElainaPetService extends Service {
                     petFlags,
                     PixelFormat.TRANSLUCENT);
             lp.gravity = Gravity.TOP | Gravity.RIGHT;
-            lp.x = dp(8);
-            /* OCR A4：按状态栏高度定位（刘海/挖孔机不再压边），并留出安全边距 */
-            lp.y = dp(12) + statusBarHeight();
+            /* OCR POS：恢复上次拖动后的位置（没有则默认右上角+状态栏下方） */
+            lp.x = sp.getInt("posX", dp(8));
+            lp.y = sp.getInt("posY", dp(12) + statusBarHeight());
+            draggable = sp.getBoolean("draggable", true);
 
             petParams = lp;   /* 提升为字段：输入焦点切换时需要动态改 flags */
             petView = new WebView(this);
@@ -228,7 +229,7 @@ public class ElainaPetService extends Service {
                         lastTouchY = event.getRawY();
                         return false;   /* 不消费 DOWN，保证 WebView 内部点击/输入正常 */
                     case MotionEvent.ACTION_MOVE:
-                        if (!dragging) return false;   /* 仅前端拖拽条激活时拖动窗口 */
+                        if (!dragging || !draggable) return false;   /* OCR POS：设置里可关闭拖动（避免误触） */
                         /* gravity=TOP|RIGHT：x 是距右边缘距离，手指右移(x 增大)应使窗口左移 → 取负号（OCR 二轮 N1） */
                         lp.x = (int) (lp.x - (event.getRawX() - lastTouchX));
                         lp.y = (int) (lp.y + (event.getRawY() - lastTouchY));
@@ -240,6 +241,7 @@ public class ElainaPetService extends Service {
                     case MotionEvent.ACTION_UP:
                     case MotionEvent.ACTION_CANCEL:
                         dragging = false;   /* JS 漏发 endDrag 时自愈（OCR 二轮 N2） */
+                        savePosition(lp);   /* OCR POS：记住位置 */
                         return false;
                     default:
                         return false;
@@ -254,6 +256,34 @@ public class ElainaPetService extends Service {
     private float lastTouchX = 0, lastTouchY = 0;
     private WindowManager.LayoutParams petParams;
     private volatile boolean dragging = false;
+    private volatile boolean draggable = true;
+
+    private void savePosition(WindowManager.LayoutParams lp) {
+        try {
+            getSharedPreferences("elaina_pet", MODE_PRIVATE).edit()
+                    .putInt("posX", lp.x).putInt("posY", lp.y).apply();
+        } catch (Throwable ignored) { }
+    }
+
+    /** 设置变更后热应用（尺寸 / 拖动开关 / 位置），无需重启服务 —— 供插件调用 */
+    public static void applyConfigFromPrefs() {
+        try {
+            ElainaPetService s = instance;
+            if (s == null || s.petView == null || s.petParams == null || s.windowManager == null) return;
+            SharedPreferences sp = s.getSharedPreferences("elaina_pet", MODE_PRIVATE);
+            float scale = 1f;
+            try { scale = Math.max(0.6f, Math.min(1.6f, Float.parseFloat(sp.getString("scale", "1")))); } catch (Exception ignored) { }
+            s.draggable = sp.getBoolean("draggable", true);
+            WindowManager.LayoutParams lp = s.petParams;
+            lp.width = s.dp((int) (300 * scale));
+            lp.height = s.dp((int) (470 * scale));
+            lp.x = sp.getInt("posX", lp.x);
+            lp.y = sp.getInt("posY", lp.y);
+            s.clampToScreen(lp);
+            s.windowManager.updateViewLayout(s.petView, lp);
+            s.savePosition(lp);
+        } catch (Throwable ignored) { }
+    }
 
     /** 输入焦点切换：悬浮窗默认 NOT_FOCUSABLE，输入框聚焦时需临时恢复焦点才能弹软键盘 */
     private void setInputFocus(final boolean focused) {
