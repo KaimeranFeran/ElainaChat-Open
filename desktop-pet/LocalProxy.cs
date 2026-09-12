@@ -16,7 +16,7 @@ namespace ElainaPet;
 public class LocalProxy : IDisposable
 {
     public const int Port = 3500;
-    public string BaseUrl { get; set; } = "http://106.14.16.68";
+    public string BaseUrl { get; set; } = "https://elainachat.j3.ink";
 
     private readonly TcpListener _listener;
     private readonly CancellationTokenSource _cts = new();
@@ -92,7 +92,7 @@ public class LocalProxy : IDisposable
             }
 
             // 转发
-            var target = (BaseUrl ?? "http://106.14.16.68").Trim().TrimEnd('/');
+            var target = (BaseUrl ?? "https://elainachat.j3.ink").Trim().TrimEnd('/');
             var full = target + path;
             using var req = new HttpRequestMessage(new HttpMethod(method), full);
             if (!string.IsNullOrWhiteSpace(authorization)) req.Headers.TryAddWithoutValidation("Authorization", authorization);
