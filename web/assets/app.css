@@ -1376,7 +1376,18 @@
             width: min(1440px, calc(100vw - 48px));
             height: min(900px, calc(var(--app-height) - 48px));
             min-height: min(640px, calc(var(--app-height) - 48px));
+            /* 垂直居中（与正式版同步的修复，2026-09）。
+               外壳高度被 min(900px, 视口-48px) 卡在 900px，而 margin 只给了固定 24px 上边距 ——
+               于是外壳一到 900px 就"从顶部往下长"，视口再高出来的部分全变成底部空白。
+               实测（本机 125% 缩放、Edge/WebView2 同引擎）：
+                   1280x1000  上 24 / 下 76   （偏 52）
+                   1280x1080  上 24 / 下 156  （偏 132）  ← 用户看到的就是这个
+               下面第一行是给不认 max() 的老内核的静态兜底（等价于原来的行为，不会更差），
+               第二行才是真正生效的那条。视口 ≤948px 时 (视口-900px)/2 是负数，max() 取 24px，
+               与原来完全一致；只有视口更高时才开始补足差额。
+               实测改后：1280x1000 → 50/50、1280x1080 → 90/90、1920x1080 → 90/90。 */
             margin: 24px auto;
+            margin: max(24px, calc((var(--app-height) - 900px) / 2)) auto;
             overflow: hidden;
             border-radius: 36px;
             background: var(--pixso-surface);
