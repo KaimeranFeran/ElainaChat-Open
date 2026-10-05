@@ -55,9 +55,18 @@
     triggerPrefix: '',                /* 例如 '/'：群聊里以它开头才回（空 = 只看 @） */
     maxReplyChars: 1200,
     platforms: {
+      /* 三个"出站即可"的老平台 */
       onebot: { enabled: false, wsUrl: 'ws://127.0.0.1:3001', accessToken: '', selfId: '' },
       telegram: { enabled: false, botToken: '', apiBase: 'https://api.telegram.org' },
-      webhook: { enabled: false, pollUrl: '', replyUrl: '', token: '', intervalMs: 3000 }
+      webhook: { enabled: false, pollUrl: '', replyUrl: '', token: '', intervalMs: 3000 },
+      /* 下面这批按各自官方协议实现（WS 握手 + 收事件 + 回消息） */
+      discord: { enabled: false, botToken: '', apiBase: 'https://discord.com/api/v10' },
+      slack: { enabled: false, appToken: '', botToken: '', apiBase: 'https://slack.com/api' },
+      kook: { enabled: false, botToken: '', apiBase: 'https://www.kookapp.cn/api/v3', gatewayBase: 'https://www.kookapp.cn/api/v3' },
+      mattermost: { enabled: false, baseUrl: '', botToken: '' },
+      misskey: { enabled: false, baseUrl: '', accessToken: '' },
+      dingtalk: { enabled: false, clientId: '', clientSecret: '', robotCode: '' },
+      qqofficial: { enabled: false, appId: '', clientSecret: '', sandbox: false }
     }
   };
 
@@ -93,11 +102,12 @@
 
   var state = {
     running: false,
-    platforms: {
-      onebot: { state: 'off', detail: '未连接', at: 0 },
-      telegram: { state: 'off', detail: '未连接', at: 0 },
-      webhook: { state: 'off', detail: '未连接', at: 0 }
-    }
+    platforms: (function () {
+      var out = {};
+      ['onebot', 'telegram', 'webhook', 'discord', 'slack', 'kook', 'mattermost', 'misskey', 'dingtalk', 'qqofficial']
+        .forEach(function (id) { out[id] = { state: 'off', detail: '未连接', at: 0 }; });
+      return out;
+    })()
   };
   var logs = [];
   function pushLog(level, text) {
@@ -530,11 +540,555 @@
     };
   })();
 
+  /* ==================== 更多平台适配器 ====================
+  /* 共同点：WS 握手用**各自协议内**的字段带令牌（浏览器的 WebSocket 不能自定义请求头），
+     REST 回复尽量走"体里带令牌"或平台允许跨域的接口；真被跨域挡住时状态栏与日志会写明是哪一步失败的。 */
+
+  /* ---------- Discord（Gateway WebSocket + REST） ---------- */
+  adapters.discord = (function () {
+    var OP = { DISPATCH: 0, HEARTBEAT: 1, IDENTIFY: 2, RECONNECT: 7, INVALID: 9, HELLO: 10, ACK: 11 };
+    var sock = null, hb = null, lastSeq = null, closedByUs = false, botId = '';
+    function api(path, body) {
+      var cfg = config.platforms.discord;
+      var base = String(cfg.apiBase || 'https://discord.com/api/v10').replace(/\/+$/, '');
+      return global.fetch(base + path, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bot ' + String(cfg.botToken || '').trim() },
+        body: JSON.stringify(body || {})
+      }).then(function (r) { return r.json().catch(function () { return null; }); });
+    }
+    function beat() { if (sock && sock.readyState === 1) sock.send(JSON.stringify({ op: OP.HEARTBEAT, d: lastSeq })); }
+    return {
+      id: 'discord', label: 'Discord Bot',
+      send: function (msg, chunks) {
+        return chunks.reduce(function (p, c) {
+          return p.then(function () { return api('/channels/' + msg.chatId + '/messages', { content: c }); });
+        }, Promise.resolve());
+      },
+      start: function () {
+        var cfg = config.platforms.discord;
+        var token = String(cfg.botToken || '').trim();
+        if (!token) { setState('discord', 'error', '还没填 Bot Token'); return Promise.resolve(false); }
+        closedByUs = false;
+        setState('discord', 'connecting', '正在取 Gateway 地址');
+        return global.fetch(String(cfg.apiBase || 'https://discord.com/api/v10').replace(/\/+$/, '') + '/gateway/bot', {
+          headers: { Authorization: 'Bot ' + token }
+        }).then(function (r) { return r.json(); }).then(function (g) {
+          if (!g || !g.url) throw new Error('取 Gateway 地址失败：' + JSON.stringify(g).slice(0, 120));
+          botId = String((g.user && g.user.id) || '');
+          return new Promise(function (resolve) {
+            var ws = new global.WebSocket(String(g.url) + '/?v=10&encoding=json');
+            sock = ws;
+            ws.onmessage = function (ev) {
+              var m = null; try { m = JSON.parse(ev.data); } catch (e) { return; }
+              if (m.s != null) lastSeq = m.s;
+              if (m.op === OP.HELLO) {
+                ws.send(JSON.stringify({ op: OP.IDENTIFY, d: { token: token, intents: 33281, properties: { os: 'windows', browser: 'elainachat', device: 'elainachat' } } }));
+                if (hb) global.clearInterval(hb);
+                hb = global.setInterval(beat, Number((m.d && m.d.heartbeat_interval) || 41250));
+                setState('discord', 'on', '已连接（令牌 ' + mask(token) + '）');
+                pushLog('ok', 'Discord Gateway 已连接');
+                resolve(true);
+                return;
+              }
+              if (m.op === OP.RECONNECT || m.op === OP.INVALID) { setState('discord', 'error', 'Gateway 要求重连（op ' + m.op + '）'); return; }
+              if (m.op !== OP.DISPATCH) return;
+              if (m.t === 'MESSAGE_CREATE') {
+                var d = m.d || {};
+                if (!d.content || !d.channel_id) return;
+                if (botId && d.author && String(d.author.id) === botId) return;   /* 别回自己 */
+                handleIncoming({
+                  platform: 'discord', platformLabel: 'Discord',
+                  sourceId: String(d.guild_id || d.channel_id), sourceName: String((d.author && d.author.username) || ''),
+                  chatId: String(d.channel_id), isGroup: !!d.guild_id,
+                  atMe: String(d.content).indexOf('<@' + botId + '>') >= 0 || !d.guild_id,
+                  text: String(d.content).replace(new RegExp('<@!?' + botId + '>', 'g'), '').trim()
+                });
+              }
+            };
+            ws.onerror = function () { setState('discord', 'error', 'Gateway 连接出错'); };
+            ws.onclose = function () {
+              if (hb) { global.clearInterval(hb); hb = null; }
+              if (sock === ws) sock = null;
+              if (closedByUs) { setState('discord', 'off', '已断开'); return; }
+              setState('discord', 'error', 'Gateway 已断开');
+            };
+          });
+        }, function (e) {
+          setState('discord', 'error', '连接失败：' + ((e && e.message) || e));
+          return false;
+        });
+      },
+      stop: function () {
+        closedByUs = true;
+        if (hb) { global.clearInterval(hb); hb = null; }
+        try { if (sock) sock.close(); } catch (e) {}
+        sock = null;
+        setState('discord', 'off', '已断开');
+        return Promise.resolve(true);
+      }
+    };
+  })();
+
+  /* ---------- Slack（Socket Mode） ---------- */
+  adapters.slack = (function () {
+    var sock = null, closedByUs = false;
+    function api(method, url, body, token) {
+      return global.fetch(String(config.platforms.slack.apiBase || 'https://slack.com/api').replace(/\/+$/, '') + url, {
+        method: method,
+        headers: { 'Content-Type': 'application/json; charset=utf-8', Authorization: 'Bearer ' + token },
+        body: body ? JSON.stringify(body) : undefined
+      }).then(function (r) { return r.json(); });
+    }
+    return {
+      id: 'slack', label: 'Slack（Socket Mode）',
+      send: function (msg, chunks) {
+        var cfg = config.platforms.slack;
+        return chunks.reduce(function (p, c) {
+          return p.then(function () { return api('POST', '/chat.postMessage', { channel: msg.chatId || msg.sourceId, text: c }, String(cfg.botToken || '').trim()); });
+        }, Promise.resolve());
+      },
+      start: function () {
+        var cfg = config.platforms.slack;
+        var app = String(cfg.appToken || '').trim();
+        if (!app) { setState('slack', 'error', '还没填 App-Level Token（xapp-…）'); return Promise.resolve(false); }
+        closedByUs = false;
+        setState('slack', 'connecting', '正在换取 Socket Mode 地址');
+        return api('POST', '/apps.connections.open', null, app).then(function (j) {
+          if (!j || !j.ok || !j.url) throw new Error((j && j.error) || 'connections.open 失败');
+          return new Promise(function (resolve) {
+            var ws = new global.WebSocket(j.url);
+            sock = ws;
+            ws.onopen = function () {
+              setState('slack', 'on', 'Socket Mode 已连接（令牌 ' + mask(app) + '）');
+              pushLog('ok', 'Slack Socket Mode 已连接');
+              resolve(true);
+            };
+            ws.onmessage = function (ev) {
+              var m = null; try { m = JSON.parse(ev.data); } catch (e) { return; }
+              if (m.envelope_id) ws.send(JSON.stringify({ envelope_id: m.envelope_id }));   /* 必须先 ack */
+              if (!m.payload) return;
+              if (m.type === 'disconnect') { setState('slack', 'error', 'Slack 要求重连（disconnect）'); return; }
+              var e2 = m.payload.event || {};
+              if (m.payload.type !== 'events_api' || e2.type !== 'message' || e2.bot_id || e2.subtype) return;
+              handleIncoming({
+                platform: 'slack', platformLabel: 'Slack',
+                sourceId: String(e2.channel || ''), sourceName: String(e2.user || ''),
+                chatId: String(e2.channel || ''), isGroup: !!e2.channel_type && e2.channel_type !== 'im',
+                atMe: String(e2.text || '').indexOf('<@') >= 0 || !e2.channel_type || e2.channel_type === 'im',
+                text: String(e2.text || '').replace(/<@[^>]+>/g, '').trim()
+              });
+            };
+            ws.onerror = function () { setState('slack', 'error', 'Socket Mode 连接出错'); };
+            ws.onclose = function () {
+              if (sock === ws) sock = null;
+              if (closedByUs) { setState('slack', 'off', '已断开'); return; }
+              setState('slack', 'error', 'Socket Mode 已断开');
+            };
+          });
+        }, function (e) {
+          setState('slack', 'error', '连接失败：' + ((e && e.message) || e));
+          return false;
+        });
+      },
+      stop: function () {
+        closedByUs = true;
+        try { if (sock) sock.close(); } catch (e) {}
+        sock = null;
+        setState('slack', 'off', '已断开');
+        return Promise.resolve(true);
+      }
+    };
+  })();
+
+  /* ---------- KOOK ---------- */
+  adapters.kook = (function () {
+    var sock = null, hb = null, closedByUs = false;
+    function api(path, body) {
+      var cfg = config.platforms.kook;
+      return global.fetch(String(cfg.apiBase || 'https://www.kookapp.cn/api/v3').replace(/\/+$/, '') + path, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bot ' + String(cfg.botToken || '').trim() },
+        body: JSON.stringify(body || {})
+      }).then(function (r) { return r.json(); });
+    }
+    return {
+      id: 'kook', label: 'KOOK',
+      send: function (msg, chunks) {
+        return chunks.reduce(function (p, c) {
+          return p.then(function () { return api('/message/create', { type: msg.isGroup ? 9 : 1, target_id: msg.sourceId, content: c }); });
+        }, Promise.resolve());
+      },
+      start: function () {
+        var cfg = config.platforms.kook;
+        var token = String(cfg.botToken || '').trim();
+        if (!token) { setState('kook', 'error', '还没填 Bot Token'); return Promise.resolve(false); }
+        closedByUs = false;
+        setState('kook', 'connecting', '正在取 Gateway 地址');
+        return api('/gateway/index?compress=0', {}).then(function (j) {
+          var url = j && j.data && j.data.url;
+          if (!url) throw new Error('取 Gateway 失败：' + JSON.stringify(j).slice(0, 120));
+          return new Promise(function (resolve) {
+            var ws = new global.WebSocket(url);
+            sock = ws;
+            ws.onmessage = function (ev) {
+              var m = null; try { m = JSON.parse(ev.data); } catch (e) { return; }
+              if (m.s === 1) { ws.send(JSON.stringify({ s: 2, sn: m.sn })); return; }        /* hello → 登录 */
+              if (m.s === 3) return;                                                          /* pong */
+              if (m.s === 5) { setState('kook', 'error', 'KOOK 要求重连'); return; }
+              if (m.s !== 0 || !m.d) return;
+              if (m.d.code === 0) {
+                if (hb) global.clearInterval(hb);
+                hb = global.setInterval(function () { if (ws.readyState === 1) ws.send(JSON.stringify({ s: 2, sn: 6 })); }, 30000);
+                setState('kook', 'on', '已连接（令牌 ' + mask(token) + '）');
+                pushLog('ok', 'KOOK Gateway 已连接');
+                resolve(true);
+                return;
+              }
+              if (m.d.type === 1 && m.d.content) {
+                var isGroup = m.d.channel_type !== 'PERSON';
+                var mention = /^\(met\)\d+\(met\)/.test(String(m.d.content));
+                handleIncoming({
+                  platform: 'kook', platformLabel: 'KOOK',
+                  sourceId: String(isGroup ? m.d.target_id : m.d.author_id), sourceName: String((m.d.author && m.d.author.username) || ''),
+                  chatId: String(m.d.target_id || m.d.author_id), isGroup: isGroup, atMe: mention || !isGroup,
+                  text: String(m.d.content).replace(/^\(met\)\d+\(met\)/, '').trim()
+                });
+              }
+            };
+            ws.onopen = function () { ws.send(JSON.stringify({ s: 1, sn: 0, d: { token: token, compress: 0 } })); };
+            ws.onerror = function () { setState('kook', 'error', 'Gateway 连接出错'); };
+            ws.onclose = function () {
+              if (hb) { global.clearInterval(hb); hb = null; }
+              if (sock === ws) sock = null;
+              if (closedByUs) { setState('kook', 'off', '已断开'); return; }
+              setState('kook', 'error', 'Gateway 已断开');
+            };
+          });
+        }, function (e) {
+          setState('kook', 'error', '连接失败：' + ((e && e.message) || e));
+          return false;
+        });
+      },
+      stop: function () {
+        closedByUs = true;
+        if (hb) { global.clearInterval(hb); hb = null; }
+        try { if (sock) sock.close(); } catch (e) {}
+        sock = null;
+        setState('kook', 'off', '已断开');
+        return Promise.resolve(true);
+      }
+    };
+  })();
+
+  /* ---------- Mattermost ---------- */
+  adapters.mattermost = (function () {
+    var sock = null, closedByUs = false, seq = 1;
+    function base() { return String(config.platforms.mattermost.baseUrl || '').replace(/\/+$/, ''); }
+    function api(path, body) {
+      return global.fetch(base() + '/api/v4' + path, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + String(config.platforms.mattermost.botToken || '').trim() },
+        body: JSON.stringify(body || {})
+      }).then(function (r) { return r.json(); });
+    }
+    return {
+      id: 'mattermost', label: 'Mattermost',
+      send: function (msg, chunks) {
+        return chunks.reduce(function (p, c) {
+          return p.then(function () { return api('/posts', { channel_id: msg.chatId || msg.sourceId, message: c }); });
+        }, Promise.resolve());
+      },
+      start: function () {
+        var cfg = config.platforms.mattermost;
+        if (!base()) { setState('mattermost', 'error', '还没填服务器地址'); return Promise.resolve(false); }
+        if (!String(cfg.botToken || '').trim()) { setState('mattermost', 'error', '还没填 Bot Token'); return Promise.resolve(false); }
+        closedByUs = false;
+        setState('mattermost', 'connecting', '正在连接 WebSocket');
+        return new Promise(function (resolve) {
+          var wsUrl = base().replace(/^http/, 'ws') + '/api/v4/websocket';
+          var ws = new global.WebSocket(wsUrl);
+          sock = ws;
+          ws.onopen = function () {
+            ws.send(JSON.stringify({ seq: seq++, action: 'authentication_challenge', data: { token: String(cfg.botToken || '').trim() } }));
+            setState('mattermost', 'on', '已连接（令牌 ' + mask(cfg.botToken) + '）');
+            pushLog('ok', 'Mattermost WebSocket 已连接');
+            resolve(true);
+          };
+          ws.onmessage = function (ev) {
+            var m = null; try { m = JSON.parse(ev.data); } catch (e) { return; }
+            if (m.event !== 'posted') return;
+            var p = m.data && m.data.post;
+            if (typeof p === 'string') { try { p = JSON.parse(p); } catch (e) { return; } }
+            if (!p || !p.message) return;
+            if (m.data && m.data.sender_name && p.user_id === (m.broadcast && m.broadcast.user_id)) return;
+            handleIncoming({
+              platform: 'mattermost', platformLabel: 'Mattermost',
+              sourceId: String(p.channel_id || ''), sourceName: String(p.user_id || ''),
+              chatId: String(p.channel_id || ''), isGroup: true, atMe: true, text: String(p.message || '')
+            });
+          };
+          ws.onerror = function () { setState('mattermost', 'error', 'WebSocket 连接出错'); };
+          ws.onclose = function () {
+            if (sock === ws) sock = null;
+            if (closedByUs) { setState('mattermost', 'off', '已断开'); return; }
+            setState('mattermost', 'error', 'WebSocket 已断开');
+          };
+        });
+      },
+      stop: function () {
+        closedByUs = true;
+        try { if (sock) sock.close(); } catch (e) {}
+        sock = null;
+        setState('mattermost', 'off', '已断开');
+        return Promise.resolve(true);
+      }
+    };
+  })();
+
+  /* ---------- Misskey（令牌走 query / body，不需要请求头） ---------- */
+  adapters.misskey = (function () {
+    var sock = null, closedByUs = false;
+    function base() { return String(config.platforms.misskey.baseUrl || '').replace(/\/+$/, ''); }
+    return {
+      id: 'misskey', label: 'Misskey',
+      send: function (msg, chunks) {
+        return chunks.reduce(function (p, c) {
+          return p.then(function () {
+            return global.fetch(base() + '/api/notes/create', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ i: String(config.platforms.misskey.accessToken || '').trim(), text: c, visibility: 'public' })
+            }).then(function (r) { return r.json(); });
+          });
+        }, Promise.resolve());
+      },
+      start: function () {
+        var cfg = config.platforms.misskey;
+        var token = String(cfg.accessToken || '').trim();
+        if (!base()) { setState('misskey', 'error', '还没填实例地址'); return Promise.resolve(false); }
+        if (!token) { setState('misskey', 'error', '还没填访问令牌'); return Promise.resolve(false); }
+        closedByUs = false;
+        setState('misskey', 'connecting', '正在连接 streaming');
+        return new Promise(function (resolve) {
+          var ws = new global.WebSocket(base().replace(/^http/, 'ws') + '/streaming?i=' + encodeURIComponent(token));
+          sock = ws;
+          ws.onopen = function () {
+            ws.send(JSON.stringify({ type: 'connect', body: { channel: 'main', id: 'elaina-main' } }));
+            setState('misskey', 'on', '已连接（令牌 ' + mask(token) + '）');
+            pushLog('ok', 'Misskey streaming 已连接');
+            resolve(true);
+          };
+          ws.onmessage = function (ev) {
+            var m = null; try { m = JSON.parse(ev.data); } catch (e) { return; }
+            if (m.type !== 'channel' || !m.body) return;
+            if (m.body.type !== 'note') return;
+            var note = m.body.body || {};
+            if (!note.text || !note.user) return;
+            var isDm = !!note.visibility && note.visibility === 'specified';
+            handleIncoming({
+              platform: 'misskey', platformLabel: 'Misskey',
+              sourceId: String(note.user.id || ''), sourceName: String(note.user.username || ''),
+              chatId: String(note.user.id || ''), isGroup: !isDm, atMe: /@\w+/.test(String(note.text)) || isDm,
+              text: String(note.text).replace(/@\w+\s*/g, '').trim()
+            });
+          };
+          ws.onerror = function () { setState('misskey', 'error', 'streaming 连接出错'); };
+          ws.onclose = function () {
+            if (sock === ws) sock = null;
+            if (closedByUs) { setState('misskey', 'off', '已断开'); return; }
+            setState('misskey', 'error', 'streaming 已断开');
+          };
+        });
+      },
+      stop: function () {
+        closedByUs = true;
+        try { if (sock) sock.close(); } catch (e) {}
+        sock = null;
+        setState('misskey', 'off', '已断开');
+        return Promise.resolve(true);
+      }
+    };
+  })();
+
+  /* ---------- 钉钉（Stream 模式） ---------- */
+  adapters.dingtalk = (function () {
+    var sock = null, closedByUs = false;
+    function ack(messageId, topic) {
+      if (!sock || sock.readyState !== 1) return;
+      sock.send(JSON.stringify({ code: 200, headers: { messageId: messageId, topic: topic || '', contentType: 'application/json' }, message: 'OK', data: '{}' }));
+    }
+    return {
+      id: 'dingtalk', label: '钉钉（Stream 模式）',
+      send: function (msg, chunks) {
+        /* 钉钉回调里带着 sessionWebhook，回消息直接 POST 它即可（不需要再换 token） */
+        var url = msg.sessionWebhook;
+        if (!url) return Promise.reject(new Error('这条钉钉消息没带 sessionWebhook，无法回复'));
+        return chunks.reduce(function (p, c) {
+          return p.then(function () {
+            return global.fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ msgtype: 'text', text: { content: c } }) });
+          });
+        }, Promise.resolve());
+      },
+      start: function () {
+        var cfg = config.platforms.dingtalk;
+        var id = String(cfg.clientId || '').trim(), secret = String(cfg.clientSecret || '').trim();
+        if (!id || !secret) { setState('dingtalk', 'error', '还没填 Client ID / Client Secret'); return Promise.resolve(false); }
+        closedByUs = false;
+        setState('dingtalk', 'connecting', '正在换取长连接地址');
+        return global.fetch('https://api.dingtalk.com/v1.0/gateway/connections/open', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ clientId: id, clientSecret: secret, subscriptions: [{ type: 'CALLBACK', topic: '/v1.0/im/bot/messages/get' }], ua: 'elainachat/1.0' })
+        }).then(function (r) { return r.json(); }).then(function (j) {
+          if (!j || !j.endpoint || !j.ticket) throw new Error('换取失败：' + JSON.stringify(j).slice(0, 120));
+          return new Promise(function (resolve) {
+            var ws = new global.WebSocket(j.endpoint + '?ticket=' + encodeURIComponent(j.ticket));
+            sock = ws;
+            ws.onopen = function () {
+              setState('dingtalk', 'on', '已连接（Client ID ' + mask(id) + '）');
+              pushLog('ok', '钉钉 Stream 已连接');
+              resolve(true);
+            };
+            ws.onmessage = function (ev) {
+              var m = null; try { m = JSON.parse(ev.data); } catch (e) { return; }
+              var headers = m.headers || {};
+              if (m.type === 'SYSTEM') {
+                if (headers.topic === 'ping') ack(headers.messageId, 'pong');
+                return;
+              }
+              if (m.type !== 'CALLBACK') return;
+              var data = {};
+              try { data = typeof m.data === 'string' ? JSON.parse(m.data) : (m.data || {}); } catch (e) { data = {}; }
+              ack(headers.messageId, headers.topic);
+              var text = (data.text && data.text.content) || '';
+              if (!text) return;
+              handleIncoming({
+                platform: 'dingtalk', platformLabel: '钉钉',
+                sourceId: String(data.conversationId || data.senderStaffId || ''), sourceName: String(data.senderNick || ''),
+                chatId: String(data.conversationId || ''), isGroup: String(data.conversationType) === '2',
+                atMe: true, sessionWebhook: data.sessionWebhook || '',
+                text: String(text).replace(/^\s*/, '').trim()
+              });
+            };
+            ws.onerror = function () { setState('dingtalk', 'error', '长连接出错'); };
+            ws.onclose = function () {
+              if (sock === ws) sock = null;
+              if (closedByUs) { setState('dingtalk', 'off', '已断开'); return; }
+              setState('dingtalk', 'error', '长连接已断开');
+            };
+          });
+        }, function (e) {
+          setState('dingtalk', 'error', '连接失败：' + ((e && e.message) || e));
+          return false;
+        });
+      },
+      stop: function () {
+        closedByUs = true;
+        try { if (sock) sock.close(); } catch (e) {}
+        sock = null;
+        setState('dingtalk', 'off', '已断开');
+        return Promise.resolve(true);
+      }
+    };
+  })();
+
+  /* ---------- QQ 官方机器人（开放平台 WebSocket） ---------- */
+  adapters.qqofficial = (function () {
+    var sock = null, hb = null, closedByUs = false, token = '', lastSeq = null;
+    function apiHost(sandbox) { return sandbox ? 'https://sandbox.api.sgroup.qq.com' : 'https://api.sgroup.qq.com'; }
+    function rest(path, body, method) {
+      var cfg = config.platforms.qqofficial;
+      return global.fetch(apiHost(!!cfg.sandbox) + path, {
+        method: method || 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'QQBot ' + token, 'X-Union-Appid': String(cfg.appId || '') },
+        body: body ? JSON.stringify(body) : undefined
+      }).then(function (r) { return r.json().catch(function () { return null; }); });
+    }
+    return {
+      id: 'qqofficial', label: 'QQ 官方机器人',
+      send: function (msg, chunks) {
+        return chunks.reduce(function (p, c) {
+          return p.then(function () {
+            return msg.isGroup
+              ? rest('/v2/groups/' + msg.sourceId + '/messages', { content: c, msg_type: 0, msg_id: msg.msgId || undefined })
+              : rest('/v2/users/' + msg.sourceId + '/messages', { content: c, msg_type: 0, msg_id: msg.msgId || undefined });
+          });
+        }, Promise.resolve());
+      },
+      start: function () {
+        var cfg = config.platforms.qqofficial;
+        var appId = String(cfg.appId || '').trim(), secret = String(cfg.clientSecret || '').trim();
+        if (!appId || !secret) { setState('qqofficial', 'error', '还没填 AppID / AppSecret'); return Promise.resolve(false); }
+        closedByUs = false;
+        setState('qqofficial', 'connecting', '正在取 access_token');
+        return global.fetch('https://bots.qq.com/app/getAppAccessToken', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ appId: appId, clientSecret: secret })
+        }).then(function (r) { return r.json(); }).then(function (j) {
+          token = String((j && j.access_token) || '');
+          if (!token) throw new Error('取 token 失败：' + JSON.stringify(j).slice(0, 120));
+          return rest('/gateway', null, 'GET');
+        }).then(function (g) {
+          var url = g && g.url;
+          if (!url) throw new Error('取 Gateway 失败：' + JSON.stringify(g).slice(0, 120));
+          return new Promise(function (resolve) {
+            var ws = new global.WebSocket(url);
+            sock = ws;
+            ws.onmessage = function (ev) {
+              var m = null; try { m = JSON.parse(ev.data); } catch (e) { return; }
+              if (m.s != null) lastSeq = m.s;
+              if (m.op === 10) {
+                ws.send(JSON.stringify({ op: 2, d: { token: 'QQBot ' + token, intents: (1 << 25) | (1 << 30), shard: [0, 1] } }));
+                if (hb) global.clearInterval(hb);
+                hb = global.setInterval(function () { if (ws.readyState === 1) ws.send(JSON.stringify({ op: 1, d: lastSeq })); }, 30000);
+                setState('qqofficial', 'on', '已连接（AppID ' + mask(appId) + '）');
+                pushLog('ok', 'QQ 官方机器人已连接');
+                resolve(true);
+                return;
+              }
+              if (m.op === 11 || m.op === 0 && !m.t) return;
+              if (m.t === 'C2C_MESSAGE_CREATE' || m.t === 'GROUP_AT_MESSAGE_CREATE') {
+                var d = m.d || {};
+                var isGroup = m.t === 'GROUP_AT_MESSAGE_CREATE';
+                if (!d.content) return;
+                handleIncoming({
+                  platform: 'qqofficial', platformLabel: 'QQ官方',
+                  sourceId: String(isGroup ? d.group_openid : (d.author && d.author.user_openid) || ''),
+                  sourceName: String((d.author && d.author.username) || ''),
+                  chatId: String(isGroup ? d.group_openid : (d.author && d.author.user_openid) || ''),
+                  isGroup: isGroup, atMe: true, msgId: String(d.id || ''),
+                  text: String(d.content).replace(/<@!?\d+>/, '').trim()
+                });
+              }
+            };
+            ws.onerror = function () { setState('qqofficial', 'error', 'Gateway 连接出错'); };
+            ws.onclose = function () {
+              if (hb) { global.clearInterval(hb); hb = null; }
+              if (sock === ws) sock = null;
+              if (closedByUs) { setState('qqofficial', 'off', '已断开'); return; }
+              setState('qqofficial', 'error', 'Gateway 已断开');
+            };
+          });
+        }, function (e) {
+          setState('qqofficial', 'error', '连接失败：' + ((e && e.message) || e));
+          return false;
+        });
+      },
+      stop: function () {
+        closedByUs = true;
+        if (hb) { global.clearInterval(hb); hb = null; }
+        try { if (sock) sock.close(); } catch (e) {}
+        sock = null;
+        setState('qqofficial', 'off', '已断开');
+        return Promise.resolve(true);
+      }
+    };
+  })();
+
   /* ==================== 启停 ==================== */
 
   function connect(id) {
     var a = adapters[id];
     if (!a) return Promise.resolve(false);
+    selId = id;
     saveConfig({ platforms: (function () { var o = {}; o[id] = { enabled: true }; return o; })() });
     return Promise.resolve(a.start());
   }
@@ -546,7 +1100,7 @@
   }
   function start(onlyId) {
     state.running = true;
-    var ids = onlyId ? [onlyId] : ['onebot', 'telegram', 'webhook'];
+    var ids = onlyId ? [onlyId] : Object.keys(adapters);
     return ids.reduce(function (p, id) {
       return p.then(function () {
         var cfg = config.platforms[id] || {};
@@ -584,37 +1138,62 @@
     var color = st === 'on' ? '#22c55e' : (st === 'connecting' ? '#f59e0b' : (st === 'error' ? '#ef4444' : '#94a3b8'));
     return '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:' + color + ';vertical-align:middle;margin-right:6px"></span>';
   }
-  function platformCard(id) {
+  /* 字段定义：每个平台要填什么（顺序即界面顺序） */
+  var FIELD_DEFS = {
+    onebot: [['wsUrl', 'WebSocket 地址', 'ws://127.0.0.1:3001'], ['accessToken', 'Access Token（可空）', '与 NapCat / Lagrange 里一致', true], ['selfId', '机器人 QQ 号（判断被 @）', '10001']],
+    telegram: [['botToken', 'Bot Token', '123456:ABC-DEF…', true], ['apiBase', 'API 地址', 'https://api.telegram.org']],
+    webhook: [['pollUrl', '拉取地址（GET → {messages:[…]}）', 'http://127.0.0.1:8080/pull'], ['replyUrl', '回复地址（POST {to,text}）', 'http://127.0.0.1:8080/reply'], ['token', 'Bearer 令牌（可空）', '', true], ['intervalMs', '轮询间隔 ms', '3000']],
+    discord: [['botToken', 'Bot Token', 'MTIz…', true], ['apiBase', 'API 地址', 'https://discord.com/api/v10']],
+    slack: [['appToken', 'App-Level Token（xapp-…）', 'xapp-…', true], ['botToken', 'Bot Token（xoxb-…）', 'xoxb-…', true]],
+    kook: [['botToken', 'Bot Token', '', true]],
+    mattermost: [['baseUrl', '服务器地址', 'https://mm.example.com'], ['botToken', 'Bot Token', '', true]],
+    misskey: [['baseUrl', '实例地址', 'https://misskey.io'], ['accessToken', '访问令牌', '', true]],
+    dingtalk: [['clientId', 'Client ID（AppKey）', ''], ['clientSecret', 'Client Secret（AppSecret）', '', true]],
+    qqofficial: [['appId', 'AppID', ''], ['clientSecret', 'AppSecret', '', true]]
+  };
+  /* 每个平台一句话说明（写清"要什么"和已知限制，别让用户猜） */
+  var PLATFORM_HINTS = {
+    onebot: '配 NapCat / Lagrange / go-cqhttp 的**正向** WebSocket 地址（它们里开 "WebSocket 服务端"）。',
+    telegram: '找 @BotFather 建机器人拿 Token；长轮询，不需要公网地址。',
+    webhook: '给自建桥用：GET 拉 {messages:[{from,text,cursor}]}，回消息 POST {to,text}。AstrBot / Satori 都能这样接。',
+    discord: 'Discord Developer Portal 建应用取 Bot Token；要开 MESSAGE CONTENT INTENT（在 Bot 页里勾）。',
+    slack: '建 App 后开 Socket Mode，拿 App-Level Token（xapp-，connections:write）与 Bot Token（xoxb-，chat:write）。',
+    kook: '开发者中心建机器人，取 Bot Token（令牌里已含 Bot 前缀的请只填后面那段）。',
+    mattermost: '系统控制台建 Bot 账号取 Token，填服务器根地址（不用带 /api/v4）。',
+    misskey: '设置 → API 生成访问令牌（要能读写笔记）；令牌走地址栏，不需要请求头。',
+    dingtalk: '开放平台建应用，拿 Client ID / Client Secret；机器人回复走回调里的 sessionWebhook。',
+    qqofficial: 'QQ 开放平台建机器人，拿 AppID / AppSecret；沙箱环境请勾上「沙箱」。'
+  };
+  var selId = 'onebot';
+  function chipsHtml() {
+    return '<div style="display:flex;flex-wrap:wrap;gap:6px;padding:4px 0 8px">' +
+      Object.keys(adapters).map(function (id) {
+        var st = (state.platforms[id] || {}).state || 'off';
+        var on = id === selId;
+        return '<button type="button" class="sw-seg" data-cp-pick="' + id + '" style="min-height:28px;padding:0 10px;' +
+          (on ? 'outline:2px solid rgba(124,58,237,.55);' : '') + '">' + dot(st) + esc(adapters[id].label) + '</button>';
+      }).join('') + '</div>';
+  }
+  function detailHtml() {
+    var id = selId;
     var a = adapters[id];
+    if (!a) return '';
     var st = state.platforms[id] || { state: 'off', detail: '' };
     var cfg = config.platforms[id] || {};
-    var btn = st.state === 'on' || st.state === 'connecting'
+    var btn = (st.state === 'on' || st.state === 'connecting')
       ? '<button type="button" class="sw-seg" data-cp-act="disconnect" data-cp-id="' + id + '" style="min-height:30px;padding:0 12px">断开</button>'
       : '<button type="button" class="sw-seg" data-cp-act="connect" data-cp-id="' + id + '" style="min-height:30px;padding:0 12px">连接</button>';
-    var fields = [];
-    if (id === 'onebot') {
-      fields.push(['wsUrl', 'WebSocket 地址', 'ws://127.0.0.1:3001', cfg.wsUrl]);
-      fields.push(['accessToken', 'Access Token（可空）', '和 NapCat/Lagrange 里配的一致', cfg.accessToken, true]);
-      fields.push(['selfId', '机器人 QQ 号（判断被 @）', '10001', cfg.selfId]);
-    } else if (id === 'telegram') {
-      fields.push(['botToken', 'Bot Token', '123456:ABC-DEF…', cfg.botToken, true]);
-      fields.push(['apiBase', 'API 地址', 'https://api.telegram.org', cfg.apiBase]);
-    } else if (id === 'webhook') {
-      fields.push(['pollUrl', '拉取地址（GET，返回 {messages:[…]}）', 'http://127.0.0.1:8080/pull', cfg.pollUrl]);
-      fields.push(['replyUrl', '回复地址（POST {to,text}）', 'http://127.0.0.1:8080/reply', cfg.replyUrl]);
-      fields.push(['token', 'Bearer 令牌（可空）', '', cfg.token, true]);
-      fields.push(['intervalMs', '轮询间隔 ms', '3000', cfg.intervalMs]);
-    }
-    return '<div class="sw-setting-theme-row" style="flex-direction:column;align-items:stretch;gap:6px;padding:10px 0;border-top:1px solid rgba(120,120,160,.16)" data-cp-card="' + id + '">' +
+    return '<div style="padding:8px 0 2px;border-top:1px solid rgba(120,120,160,.16)">' +
       '<div style="display:flex;align-items:center;gap:8px">' + dot(st.state) +
       '<span class="sw-ttl" style="flex:1">' + esc(a.label) + '</span>' + btn + '</div>' +
-      '<div style="font-size:11px;opacity:.8;line-height:1.6" id="cpState_' + id + '">' + esc(st.detail || '未连接') + '</div>' +
-      fields.map(function (f) {
+      '<div style="font-size:11px;opacity:.8;line-height:1.7;padding:4px 0" id="cpState_' + id + '">' + esc(st.detail || '未连接') + '</div>' +
+      (FIELD_DEFS[id] || []).map(function (fd) {
         return '<div class="sw-setting-theme-row" style="gap:8px;align-items:center">' +
-          '<span style="font-size:11.5px;opacity:.85;flex:0 0 122px">' + esc(f[1]) + '</span>' +
-          '<input type="' + (f[4] ? 'password' : 'text') + '" data-cp-field="' + f[0] + '" data-cp-id="' + id + '" value="' + esc(f[3] == null ? '' : f[3]) + '" placeholder="' + esc(f[2]) + '" ' +
+          '<span style="font-size:11.5px;opacity:.85;flex:0 0 138px">' + esc(fd[1]) + '</span>' +
+          '<input type="' + (fd[3] ? 'password' : 'text') + '" data-cp-field="' + fd[0] + '" data-cp-id="' + id + '" value="' + esc(cfg[fd[0]] == null ? '' : cfg[fd[0]]) + '" placeholder="' + esc(fd[2]) + '" ' +
           'style="flex:1;min-width:0;font-size:11.5px;padding:5px 8px;border-radius:8px;border:1px solid rgba(120,120,160,.28);background:transparent;color:inherit"></div>';
       }).join('') +
+      '<div style="font-size:11px;opacity:.7;line-height:1.7;padding-top:4px">' + esc(PLATFORM_HINTS[id] || '') + '</div>' +
       '</div>';
   }
   function render() {
@@ -641,7 +1220,7 @@
       '<input type="text" data-cp-field="triggerPrefix" value="' + esc(config.triggerPrefix) + '" placeholder="前缀（可空），如 /" ' +
       'style="flex:1;min-width:110px;font-size:11.5px;padding:5px 8px;border-radius:8px;border:1px solid rgba(120,120,160,.28);background:transparent;color:inherit"></div>' +
       '<div class="sw-ttl" style="margin-top:6px">平台</div>' +
-      platformCard('onebot') + platformCard('telegram') + platformCard('webhook') +
+      chipsHtml() + detailHtml() +
       '<div class="sw-setting-theme-row" style="gap:8px;flex-wrap:wrap;padding-top:8px">' +
       '<button type="button" class="sw-seg" data-cp-act="start" style="min-height:30px;padding:0 12px">全部连接</button>' +
       '<button type="button" class="sw-seg" data-cp-act="stop" style="min-height:30px;padding:0 12px">全部断开</button>' +
@@ -672,6 +1251,9 @@
         else if (act === 'stop') { memToast('已全部断开'); stop(); }
         else if (act === 'clearLog') { clearLog(); }
       });
+    });
+    body.querySelectorAll('[data-cp-pick]').forEach(function (b) {
+      b.addEventListener('click', function () { selId = b.getAttribute('data-cp-pick'); render(); });
     });
     body.querySelectorAll('[data-cp-mode]').forEach(function (b) {
       b.addEventListener('click', function () { saveConfig({ conversationMode: b.getAttribute('data-cp-mode') }); });

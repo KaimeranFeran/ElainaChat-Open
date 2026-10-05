@@ -421,7 +421,8 @@
       '<div id="cpBody"></div>' +
       '<p class="text-[11px] text-indigo-300 leading-relaxed" style="padding:8px 4px 0">' +
       '把伊蕾娜接到聊天平台：平台里发消息 → 走和这里打字完全相同的对话链路 → 回复发回平台。只建立**出站连接**（不监听端口、不经云端中转），密钥只存在本机。' +
-      '参考 AstrBot 的平台适配层，目前接了三条最常用的路：OneBot v11（QQ，正向 WebSocket，配合 NapCat / Lagrange / go-cqhttp）、Telegram Bot（长轮询）、通用 Webhook（自建桥，拉取 + 回复）。' +
+      '参考 AstrBot 的平台适配层，目前接了 10 个平台：QQ（OneBot v11 正向 WS，配 NapCat / Lagrange / go-cqhttp）、Telegram Bot、Discord Bot、Slack（Socket Mode）、KOOK、Mattermost、Misskey、钉钉（Stream 模式）、QQ 官方机器人、通用 Webhook（自建桥）。' +
+      '飞书 / 企业微信 / 微信公众号 / LINE 这类**必须由公网地址回调**、或长连接用的是 protobuf 帧（浏览器里解不了）的，本版没做——通用做法是先跑一个 AstrBot 或 Satori 之类的桥，再用「通用 Webhook」这张卡片接进来。' +
       '群聊默认只在被 @ 或带触发前缀时才回，避免对着整个群自说自话；回复超长会自动分条发送。</p>';
     const anchor = document.getElementById('galgameSettingSection')
       || document.getElementById('petSettingSection')
