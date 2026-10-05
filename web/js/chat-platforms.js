@@ -1533,8 +1533,9 @@
     var o = overlayNode('cpQqBindOverlay',
       '<div style="width:100%;max-width:420px;border-radius:20px;padding:16px;background:rgba(20,24,36,.92);border:1px solid rgba(255,255,255,.14);color:#e8eefb">' +
       '<div style="font-weight:700;font-size:15px;margin-bottom:8px">扫码绑定 QQ 官方机器人</div>' +
-      '<div style="font-size:11.5px;opacity:.82;line-height:1.7;margin-bottom:10px">用手机 QQ 扫下面这张码（相机 / QQ 扫码都行，它是个网址），在打开的页面上确认绑定；成功后 AppID 与 AppSecret 会自动填好并连接。</div>' +
+      '<div style="font-size:11.5px;opacity:.82;line-height:1.7;margin-bottom:10px">请用**手机 QQ 的「扫一扫」**扫下面这张码（右上角 ＋ → 扫一扫）。<br>不要用系统相机 / 微信 / 浏览器扫 —— 那个页面要 QQ 内置浏览器的 jsbridge 才能跑，在普通浏览器里会**白屏**。<br>绑定成功后 AppID 与 AppSecret 会自动填好并连接。</div>' +
       '<div id="cpQqBindQrBox" style="text-align:center;background:#fff;border-radius:14px;padding:10px;min-height:120px"><div style="color:#555;padding:40px 0;font-size:12px">正在取二维码…</div></div>' +
+      '<div id="cpQqBindLink" style="display:none;font-size:11px;opacity:.75;margin-top:8px;line-height:1.6"></div>' +
       '<div id="cpQqBindStatus" style="font-size:11.5px;margin-top:10px;line-height:1.7">正在创建绑定任务…</div>' +
       '<div style="display:flex;gap:8px;margin-top:10px">' +
       '<button type="button" class="sw-seg" data-cp-qqbind="refresh" style="flex:1;min-height:32px">换一张</button>' +
@@ -1557,7 +1558,12 @@
           ? '<img alt="QQ 绑定二维码" style="width:240px;height:240px;display:block;margin:0 auto" src="' + img + '">'
           : '<div style="color:#333;padding:30px 0;font-size:12px">二维码库没加载，请复制链接到手机打开：<br>' + esc(url) + '</div>';
       }
-      qqBindStatus('等待手机 QQ 扫码…（二维码几分钟内有效）');
+      var linkBox = document.getElementById('cpQqBindLink');
+      if (linkBox) {
+        linkBox.style.display = 'block';
+        linkBox.innerHTML = '扫不动？把这条链接复制到手机 QQ 里打开：<br><span style="word-break:break-all">' + esc(url) + '</span>';
+      }
+      qqBindStatus('等待手机 QQ 扫码…（二维码几分钟内有效，过期点「换一张」）');
       qqBindTask.timer = global.setInterval(pollQqBind, QQ_BIND_INTERVAL_MS);
       pollQqBind();
     }).catch(function (e) {
