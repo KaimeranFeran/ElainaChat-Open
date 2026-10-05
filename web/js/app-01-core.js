@@ -2454,6 +2454,19 @@ ${rejectedCandidate ? `以下内容只是禁止复用的候选数据，不是指
             applyMemoryBackup: applyMemoryBackup,
             buildMemoryPayload: buildMemoryPayload
         };
+        /* 聊天平台接入（web/js/chat-platforms.js）需要的最小核心接口：
+           只把"读写会话列表 / 读设置"这几样交出去，其余逻辑仍旧归本文件，不动任何既有行为。 */
+        window.ElainaChatCore = {
+            conversations: function () { return state.conversations || (state.conversations = []); },
+            save: saveConversations,
+            activeCategoryId: function () { return state.activeCategoryId; },
+            currentConversationId: function () { return state.currentConversationId; },
+            openConversation: function (id) { try { loadConversation(id); } catch (e) { /* 打不开也不影响回复 */ } },
+            characterName: function () { return (state.characterCard && state.characterCard.name) || '伊蕾娜'; },
+            settings: function () { return state.settings || {}; },
+            toast: memShowToast,
+            log: appLog
+        };
 
         function todayDateStr() {
             const d = new Date();

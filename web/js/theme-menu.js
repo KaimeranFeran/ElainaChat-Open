@@ -405,6 +405,35 @@
     syncRows();
   }, 'pet settings');
 
+  /* ---- 聊天平台接入（Finder「聊天平台」分段）
+     把伊蕾娜接到 QQ / Telegram / 自建桥上：平台里发消息 → 走与手动打字**完全相同**的对话链路
+     （app-02-message.js 的 handleUserInput）→ 回复发回平台。
+     只建立**出站连接**（不监听端口、不经云端中转），密钥只存在本机；实现全在 web/js/chat-platforms.js。
+     分段建法与其它分段一致，锚点用回退链，避免整段消失；必须在下面的分段快照（settingsLazy）之前建好。 */
+  safe(() => {
+    if (document.getElementById('chatPlatformSettingSection')) return;
+    const CP = window.ElainaChatPlatforms;
+    if (!CP || typeof CP.mount !== 'function') return;
+    const sec = document.createElement('section');
+    sec.id = 'chatPlatformSettingSection';
+    sec.innerHTML =
+      '<div class="modal-label flex items-center gap-2"><span class="text-violet-500">✦</span> 聊天平台</div>' +
+      '<div id="cpBody"></div>' +
+      '<p class="text-[11px] text-indigo-300 leading-relaxed" style="padding:8px 4px 0">' +
+      '把伊蕾娜接到聊天平台：平台里发消息 → 走和这里打字完全相同的对话链路 → 回复发回平台。只建立**出站连接**（不监听端口、不经云端中转），密钥只存在本机。' +
+      '参考 AstrBot 的平台适配层，目前接了三条最常用的路：OneBot v11（QQ，正向 WebSocket，配合 NapCat / Lagrange / go-cqhttp）、Telegram Bot（长轮询）、通用 Webhook（自建桥，拉取 + 回复）。' +
+      '群聊默认只在被 @ 或带触发前缀时才回，避免对着整个群自说自话；回复超长会自动分条发送。</p>';
+    const anchor = document.getElementById('galgameSettingSection')
+      || document.getElementById('petSettingSection')
+      || document.getElementById('themeSettingSection');
+    if (anchor && anchor.parentNode) anchor.insertAdjacentElement('afterend', sec);
+    else {
+      const content = document.getElementById('settingsContent');
+      if (!content) return;
+      content.appendChild(sec);
+    }
+    CP.mount(sec);
+  }, 'chat platform settings');
 
   /* ---- 9) Galgame 界面设置（Finder「Galgame」段；默认关闭） ---- */
   safe(() => {
@@ -508,7 +537,8 @@
       voice: findIdx(s => labelOf(s).indexOf('语音输出') >= 0),
       asr: findIdx(s => labelOf(s).indexOf('语音输入') >= 0),
       mem: findIdx(s => labelOf(s).indexOf('记忆') >= 0 && labelOf(s).indexOf('日志') < 0),
-      log: findIdx(s => labelOf(s).indexOf('日志') >= 0)
+      log: findIdx(s => labelOf(s).indexOf('日志') >= 0),
+      platform: findIdx(s => s.id === 'chatPlatformSettingSection')
     };
     const groups = [
       { label: '外观', idx: [idx.theme] },
@@ -517,7 +547,8 @@
       { label: '记忆与日志', idx: [idx.mem, idx.log] },
       { label: '角色设定', idx: [idx.char] },
       { label: '桌宠', idx: [idx.pet] },
-      { label: 'Galgame', idx: [idx.galgame] }
+      { label: 'Galgame', idx: [idx.galgame] },
+      { label: '聊天平台', idx: [idx.platform] }
     ].filter(g => g.idx.every(i => i >= 0));
     const nav = document.createElement('div');
     nav.className = 'sw-setting-nav';
