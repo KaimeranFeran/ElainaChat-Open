@@ -32,7 +32,11 @@ writeFileSync(idx, c, 'utf8');
 
 /* ---------- 2) 桌宠窗：web -> www（pet.* + 立绘 + 背景），避免手工副本过期 ---------- */
 const www = path.join(root, 'www');
-rmSync(www, { recursive: true, force: true });
+/* ★ 只清掉本脚本**自己管**的那几样（pet.* 与 img/），不再整目录 rmSync：
+   www/vendor/live2d/** 是仓库里入库的资源，整目录删掉会让它们每次打包都消失
+   （实测踩过两次：打完包 git status 里一串 D，得再 git checkout 回来）。 */
+for (const f of ['pet.html', 'pet.css', 'pet.js']) rmSync(path.join(www, f), { force: true });
+rmSync(path.join(www, 'img'), { recursive: true, force: true });
 mkdirSync(www, { recursive: true });
 for (const f of ['pet.html', 'pet.css', 'pet.js']) {
   if (existsSync(path.join(src, f))) cpSync(path.join(src, f), path.join(www, f));
