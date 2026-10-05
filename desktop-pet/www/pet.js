@@ -96,14 +96,15 @@
     const notify = function () {
       try { if (window.chrome && window.chrome.webview) window.chrome.webview.postMessage({ kind: 'drag' }); } catch (e) {}
     };
-    strip.addEventListener('mouseup', notify);
-    strip.addEventListener('touchend', function (ev) { ev.preventDefault(); notify(); }, { passive: false });
+    /* 必须在 mousedown 就通知：C# 侧是"按住期间跟随光标搬窗口"，
+       原来绑在 mouseup 上，等于松手之后才喊开始 —— 窗口纹丝不动，这就是「PC 桌宠无法拖动」的根因。 */
+    strip.addEventListener('mousedown', function (ev) { ev.preventDefault(); notify(); });
+    strip.addEventListener('touchstart', function (ev) { ev.preventDefault(); notify(); }, { passive: false });
     strip.addEventListener('contextmenu', function (ev) { ev.preventDefault(); });
   })();
 
   /* ===== 安卓悬浮窗：输入焦点 + 拖拽桥接 ===== */
   try {
-    const inputEl = document.getElementById('petInput');
     const notifyPcInputFocus = function (focused) {
       try {
         if (window.chrome && window.chrome.webview) {
@@ -111,14 +112,15 @@
         }
       } catch (e) {}
     };
-    if (inputEl) {
-      inputEl.addEventListener('focus', function () { notifyPcInputFocus(true); });
-      inputEl.addEventListener('blur', function () { notifyPcInputFocus(false); });
-    }
-    if (inputEl && window.PetBridge) {
-      if (typeof window.PetBridge.setInputFocus === 'function') {
-        inputEl.addEventListener('focus', function () { try { window.PetBridge.setInputFocus(true); } catch (e) {} });
-        inputEl.addEventListener('blur', function () { try { window.PetBridge.setInputFocus(false); } catch (e) {} });
+    /* OCR M9：这里原来先用了尚未初始化的 const inputEl（第 123 行才声明），
+       TDZ 直接抛 ReferenceError，被下面的 catch{} 吞掉 —— 结果整段安卓拖拽/输入焦点绑定全部失效。
+       统一改用文件顶部的 input。 */
+    if (input) {
+      input.addEventListener('focus', function () { notifyPcInputFocus(true); });
+      input.addEventListener('blur', function () { notifyPcInputFocus(false); });
+      if (window.PetBridge && typeof window.PetBridge.setInputFocus === 'function') {
+        input.addEventListener('focus', function () { try { window.PetBridge.setInputFocus(true); } catch (e) {} });
+        input.addEventListener('blur', function () { try { window.PetBridge.setInputFocus(false); } catch (e) {} });
       }
     }
     const dragEl = document.getElementById('dragStrip') || document.getElementById('petDrag') || document.querySelector('.pet-drag');
@@ -133,6 +135,7 @@
 
   /* ===== 语音输入（与主界面同链路：麦克风→16k float32→网关 ASR→填入并发送） ===== */
   let recCtx = null, recStream = null, recNode = null, recChunks = [], recActive = false, recTimer = null;
+  let recStarting = false, recGeneration = 0;
   function ggCfg() {
     let cfg = { baseUrl: '', apiKey: '' };
     try {
@@ -175,13 +178,15 @@
     return merged;
   }
   function stopVoiceInput(sendIt) {
+    recGeneration += 1;
+    recStarting = false;
     recActive = false;
     let btn = document.getElementById('petMic');
     if (btn) btn.classList.remove('rec');
     if (recTimer) { clearTimeout(recTimer); recTimer = null; }
     try { if (recNode) { recNode.disconnect(); recNode.onaudioprocess = null; } } catch (e) {}
     try { if (recStream) recStream.getTracks().forEach(function (t) { t.stop(); }); } catch (e) {}
-    try { if (recCtx) recCtx.close(); } catch (e) {}
+    try { if (recCtx) recCtx.close().catch(function () {}); } catch (e) {}
     recNode = null; recStream = null; recCtx = null;
     if (!sendIt) { recChunks = []; return; }
     let pcm = mergeChunks(recChunks);
@@ -214,13 +219,22 @@
       .catch(function (e) { showTip('识别请求失败：' + (e && e.message ? e.message : '网络错误')); });
   }
   function startVoiceInput() {
+    if (recStarting) { stopVoiceInput(false); return; }
     if (recActive) { stopVoiceInput(true); return; }
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { showTip('当前环境不支持麦克风'); return; }
+    const generation = ++recGeneration;
+    recStarting = true;
     navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } })
-      .then(function (stream) {
+      .then(async function (stream) {
+        if (generation !== recGeneration) {
+          stream.getTracks().forEach(function (track) { track.stop(); });
+          return;
+        }
         recStream = stream;
         recChunks = [];
         recCtx = new (window.AudioContext || window.webkitAudioContext)();
+        if (recCtx.state === 'suspended') await recCtx.resume();
+        if (generation !== recGeneration) return;
         let src = recCtx.createMediaStreamSource(stream);
         recNode = recCtx.createScriptProcessor(4096, 1, 1);
         recNode.onaudioprocess = function (ev) {
@@ -233,16 +247,34 @@
         src.connect(recNode);
         recNode.connect(recCtx.destination);
         recActive = true;
+        recStarting = false;
         let btn = document.getElementById('petMic');
         if (btn) btn.classList.add('rec');
         showTip('正在聆听… 再次点击结束并发送');
         recTimer = setTimeout(function () { if (recActive) stopVoiceInput(true); }, 60000);
       })
-      .catch(function (e) { showTip('麦克风不可用：' + (e && e.message ? e.message : '权限被拒绝')); });
+      .catch(function (e) {
+        if (generation !== recGeneration) return;
+        stopVoiceInput(false);
+        showTip('麦克风不可用：' + (e && e.message ? e.message : '权限被拒绝'));
+      });
   }
   try {
     let micBtn = document.getElementById('petMic');
     if (micBtn) micBtn.addEventListener('click', function (ev) { ev.stopPropagation(); startVoiceInput(); });
+    window.addEventListener('pagehide', function () { stopVoiceInput(false); });
+  } catch (e) {}
+
+  /* 关闭桌宠（仅 PC 桌面）：必须走网页按钮，见 pet.html 里的说明 */
+  try {
+    let closeBtn = document.getElementById('petCloseBtn');
+    if (closeBtn) {
+      closeBtn.style.display = '';
+      closeBtn.addEventListener('click', function (ev) {
+        ev.stopPropagation();
+        try { if (window.chrome && window.chrome.webview) window.chrome.webview.postMessage({ kind: 'pet-close' }); } catch (e) {}
+      });
+    }
   } catch (e) {}
 
   /* 返回主界面（仅 PC 桌面） */
@@ -273,4 +305,43 @@
     let hb = document.getElementById('helloBubble');
     if (hb) hb.style.display = '';
   }, 600);
+})();
+
+/* ==================== 套壳原生 UI 守卫（右键菜单 / 文字选中） ====================
+   这个 App 是 WebView 套壳：默认右键会弹出 Chromium 的原生菜单（"后退 / 重新加载 / 另存为…"），
+   长按、拖选还能选中文字并弹出手柄 —— 它们都属于"网页"，不属于 App 的界面语言。
+   规则：
+     · contextmenu：默认全部吞掉。App 自己的自定义菜单（消息 / 会话 / 日记）在各自的处理器里
+       preventDefault 后照常弹出，不受影响；确实需要原生菜单的元素标 data-native-menu="1" 放行。
+     · selectstart / dragstart：禁止选中与图片拖拽；输入框、文本域、.selectable 例外，
+       所以输入框里选字、复制粘贴都不受影响。
+   WebView2 那侧还有一层 WebView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = false 兜底。 */
+(function installElainaNativeUiGuard() {
+    if (window.__elainaNativeUiGuard) return;
+    window.__elainaNativeUiGuard = true;
+
+    var TEXT_ENTRY = 'input, textarea, select, [contenteditable=""], [contenteditable="true"], .selectable, [data-native-menu]';
+    function isTextEntry(node) {
+        if (!node || node.nodeType !== 1) return false;
+        var tag = String(node.tagName || '').toLowerCase();
+        if (tag === 'input' || tag === 'textarea' || tag === 'select') return true;
+        if (node.isContentEditable) return true;
+        return !!(node.closest && node.closest(TEXT_ENTRY));
+    }
+
+    document.addEventListener('contextmenu', function (event) {
+        var target = event.target;
+        if (target && target.closest && target.closest('[data-native-menu]')) return;
+        event.preventDefault();
+    }, true);
+
+    document.addEventListener('selectstart', function (event) {
+        if (isTextEntry(event.target)) return;
+        event.preventDefault();
+    }, true);
+
+    document.addEventListener('dragstart', function (event) {
+        if (isTextEntry(event.target)) return;
+        event.preventDefault();
+    }, true);
 })();

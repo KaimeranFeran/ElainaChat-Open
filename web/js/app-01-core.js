@@ -2299,7 +2299,7 @@ ${rejectedCandidate ? `以下内容只是禁止复用的候选数据，不是指
                     <button data-mem-close class="ml-auto p-1.5 rounded-lg hover:bg-white/60"><svg class="w-4 h-4 text-indigo-400" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 18L18 6M6 6l12 12"/></svg></button>
                   </div>
                   <div class="p-5 space-y-3">
-                    <p class="text-xs text-indigo-500 leading-relaxed">这份备份包含${hasMemory ? '记忆数据' : ''}${hasMemory && hasMessages ? ' 与 ' : ''}${desc}。${hasMessages ? '选中消息会并入「日记」记忆。' : ''}</p>
+                    <p class="text-xs text-indigo-500 leading-relaxed">这份备份包含${hasMemory ? '记忆数据' : ''}${hasMemory && hasMessages ? ' 与 ' : ''}${desc}。${hasMessages ? '消息会还原成一间会话（连原标题一起），并直接打开。' : ''}</p>
                     <button data-mem-apply="merge" class="btn-primary text-sm w-full">合并导入（保留现有，叠加去重）</button>
                     <button data-mem-apply="overwrite" class="btn-secondary text-sm w-full">覆盖导入（替换现有记忆）</button>
                     <button data-mem-close class="btn-secondary text-sm w-full">取消</button>
@@ -2325,6 +2325,81 @@ ${rejectedCandidate ? `以下内容只是禁止复用的候选数据，不是指
             dst.diary = dedupeMemoryObj((dst.diary || []).concat(src.diary || []), e => (e && e.date) + '|' + (e && e.content));
         }
 
+        /* ---------- 导入聊天记录：还原成真正的会话（PATCH 1.3.2） ----------
+           旧行为：把导入的消息拼成一段文字塞进「日记」记忆 —— 用户导入聊天记录后看不到原来的消息，
+           也看不到原来的标题，等于"导进来了但什么都没显示"。
+           新行为：消息还原成一间真正的会话，标题按备份里的原标题还原，并**直接打开**它。
+           去重口径与设备互联一致（有 id 用 id，否则用 角色+时间+正文 指纹），同一份备份导入两次不会翻倍。 */
+        /* 一条消息的**两个**去重键：id 与内容指纹。
+           为什么要两个：备份里的消息常常没有 id（导出时只带 角色/时间/正文），导进来会被补一个 id；
+           只按 id 比对的话，同一份备份第二次导入就认不出来 → 消息翻倍（真机验证时踩到过）。 */
+        function memoryMsgKeys(m) {
+            const keys = [];
+            if (!m || typeof m !== 'object') return keys;
+            if (m.id) keys.push('id:' + String(m.id));
+            const raw = [String(m.role || ''), String(m.timestamp || ''), String(m.text || '')].join('\u0001');
+            let h = 5381;
+            for (let i = 0; i < raw.length; i += 1) h = ((h * 33) ^ raw.charCodeAt(i)) >>> 0;
+            keys.push('fp:' + h.toString(16));
+            return keys;
+        }
+
+        /** 消息进本地前的规范化：补 id / 补时间，role 只认 user|ai */
+        function normalizeImportedMessage(m, index) {
+            const copy = {};
+            if (m && typeof m === 'object') Object.keys(m).forEach(k => { copy[k] = m[k]; });
+            copy.role = copy.role === 'user' ? 'user' : 'ai';
+            copy.text = String(copy.text == null ? '' : copy.text);
+            if (!copy.timestamp) copy.timestamp = new Date().toLocaleTimeString();
+            if (!copy.id) copy.id = 'imp_' + Date.now().toString(36) + '_' + index.toString(36) + '_' + Math.random().toString(36).slice(2, 7);
+            return copy;
+        }
+
+        /** 把备份里的消息还原成一间会话；返回 { conv, added, skipped } */
+        function restoreImportedConversation(payload) {
+            const incoming = (Array.isArray(payload.messages) ? payload.messages : []).filter(m => m && typeof m === 'object');
+            if (!incoming.length) return { conv: null, added: 0, skipped: 0 };
+            if (!Array.isArray(state.conversations)) state.conversations = [];
+
+            const seen = new Set();
+            state.conversations.forEach(c => (c.messages || []).forEach(m => memoryMsgKeys(m).forEach(k => seen.add(k))));
+
+            const added = [];
+            let skipped = 0;
+            incoming.forEach(m => {
+                const keys = memoryMsgKeys(m);
+                if (!keys.length || keys.some(k => seen.has(k))) { skipped += 1; return; }
+                keys.forEach(k => seen.add(k));
+                added.push(normalizeImportedMessage(m, added.length));
+            });
+            if (!added.length) return { conv: null, added: 0, skipped };
+
+            const wantedId = (payload.conversation && payload.conversation.id) ? String(payload.conversation.id) : '';
+            const wantedTitle = (payload.conversation && payload.conversation.title) ? String(payload.conversation.title).trim() : '';
+            let conv = wantedId ? state.conversations.find(c => String(c.id) === wantedId) : null;
+            if (!conv) {
+                conv = {
+                    id: wantedId || generateId(),
+                    title: wantedTitle || ('导入的对话 · ' + new Date().toLocaleString()),
+                    categoryId: state.activeCategoryId,
+                    isPinned: false,
+                    isStarred: false,
+                    worldSetting: '',
+                    characterPrompt: '',
+                    createdAt: new Date().toISOString(),
+                    updatedAt: new Date().toISOString(),
+                    messages: []
+                };
+                state.conversations.unshift(conv);
+            } else if (wantedTitle && !String(conv.title || '').trim()) {
+                conv.title = wantedTitle;
+            }
+            added.forEach(m => conv.messages.push(m));
+            conv.updatedAt = new Date().toISOString();
+            saveConversations();
+            appLog('info', '导入-已还原会话「' + conv.title + '」：新增 ' + added.length + ' 条，跳过重复 ' + skipped + ' 条');
+            return { conv, added: added.length, skipped };
+        }
         function applyMemoryBackup(payload, mode) {
             if (!state.memoryCore) state.memoryCore = emptyMemoryCore();
             let note = '';
@@ -2332,16 +2407,24 @@ ${rejectedCandidate ? `以下内容只是禁止复用的候选数据，不是指
                 if (mode === 'overwrite') { state.memoryCore = normalizeMemoryCore(payload.memoryCore); note = '已用导入内容替换现有记忆。'; }
                 else { mergeMemoryCore(state.memoryCore, normalizeMemoryCore(payload.memoryCore)); note = '已合并导入记忆。'; }
             }
+            /* ★ 导入聊天记录 = 还原会话（含原标题），不再塞进日记 */
+            let restored = null;
             if (Array.isArray(payload.messages) && payload.messages.length) {
-                const name = (state.characterCard && state.characterCard.name) || '伊蕾娜';
-                const content = '对话摘录' + (payload.conversation && payload.conversation.title ? '（' + payload.conversation.title + '）' : '') + '\n' +
-                    payload.messages.map(m => (m.role === 'user' ? 'You' : name) + '：' + String(m.text || '').replace(/<scene>[\s\S]*?<\/scene>/gi, '').replace(/<\/?scene>/gi, '').trim()).join('\n');
-                state.memoryCore.diary = state.memoryCore.diary || [];
-                state.memoryCore.diary.push({ date: todayDateStr(), content, essences: [] });
-                note += (note ? ' ' : '') + '已把选中消息并入日记记忆。';
+                restored = restoreImportedConversation(payload);
+                if (restored.added) {
+                    note += (note ? ' ' : '') + '已把 ' + restored.added + ' 条消息还原到'
+                        + (restored.conv && restored.conv.title ? '「' + restored.conv.title + '」' : '新会话')
+                        + (restored.skipped ? '（跳过重复 ' + restored.skipped + ' 条）' : '') + '。';
+                } else {
+                    note += (note ? ' ' : '') + '这 ' + restored.skipped + ' 条消息本地都已经有了，没有新增。';
+                }
             }
             saveMemoryCore();
             if (typeof renderFolderList === 'function') renderFolderList();
+            /* 还原出来的会话要直接打开并渲染，否则用户只看到一句提示、看不到消息和标题 */
+            if (restored && restored.conv) {
+                try { loadConversation(restored.conv.id); } catch (e) { appLog('warn', '导入-打开还原会话失败: ' + ((e && e.message) || e)); }
+            }
             updateUI();
             appendMemoryImportNotice(note || '记忆已导入。');
             showCustomAlert(note || '记忆已导入。', '导入记忆');
@@ -2363,6 +2446,14 @@ ${rejectedCandidate ? `以下内容只是禁止复用的候选数据，不是指
                 renderMessage(notice);
             }
         }
+
+        /* 文件 / 二维码导入这条路也挂出来：自动化验证要按用户的真实路径跑一遍 */
+        window.ElainaMemoryBridge = {
+            kind: MEMORY_BACKUP_KIND,
+            handleImportedContent: handleImportedContent,
+            applyMemoryBackup: applyMemoryBackup,
+            buildMemoryPayload: buildMemoryPayload
+        };
 
         function todayDateStr() {
             const d = new Date();
@@ -4529,4 +4620,41 @@ ${rejectedCandidate ? `以下内容只是禁止复用的候选数据，不是指
             renderFolderList();
         }
 
-        
+/* ==================== 套壳原生 UI 守卫（右键菜单 / 文字选中） ====================
+   这个 App 是 WebView 套壳：默认右键会弹出 Chromium 的原生菜单（"后退 / 重新加载 / 另存为…"），
+   长按、拖选还能选中文字并弹出手柄 —— 它们都属于"网页"，不属于 App 的界面语言。
+   规则：
+     · contextmenu：默认全部吞掉。App 自己的自定义菜单（消息 / 会话 / 日记）在各自的处理器里
+       preventDefault 后照常弹出，不受影响；确实需要原生菜单的元素标 data-native-menu="1" 放行。
+     · selectstart / dragstart：禁止选中与图片拖拽；输入框、文本域、.selectable 例外，
+       所以输入框里选字、复制粘贴都不受影响。
+   WebView2 那侧还有一层 WebView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = false 兜底。 */
+(function installElainaNativeUiGuard() {
+    if (window.__elainaNativeUiGuard) return;
+    window.__elainaNativeUiGuard = true;
+
+    var TEXT_ENTRY = 'input, textarea, select, [contenteditable=""], [contenteditable="true"], .selectable, [data-native-menu]';
+    function isTextEntry(node) {
+        if (!node || node.nodeType !== 1) return false;
+        var tag = String(node.tagName || '').toLowerCase();
+        if (tag === 'input' || tag === 'textarea' || tag === 'select') return true;
+        if (node.isContentEditable) return true;
+        return !!(node.closest && node.closest(TEXT_ENTRY));
+    }
+
+    document.addEventListener('contextmenu', function (event) {
+        var target = event.target;
+        if (target && target.closest && target.closest('[data-native-menu]')) return;
+        event.preventDefault();
+    }, true);
+
+    document.addEventListener('selectstart', function (event) {
+        if (isTextEntry(event.target)) return;
+        event.preventDefault();
+    }, true);
+
+    document.addEventListener('dragstart', function (event) {
+        if (isTextEntry(event.target)) return;
+        event.preventDefault();
+    }, true);
+})();

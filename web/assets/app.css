@@ -2805,3 +2805,23 @@ body.settings-open .floating-mic-surface,
 body.settings-open #micBtn,
 body.settings-open #conversation-mic-btn,
 body.settings-open #initial-conversation-mic { display: none !important; visibility: hidden !important; }
+
+/* ==================== 套壳：禁止选中 / 长按手柄 / 图片拖拽 ====================
+   WebView 套壳里默认能像网页一样拖选文字、长按弹选择手柄，和 App 的手感不一致。
+   输入框、文本域、可编辑区域、显式标了 .selectable 的地方仍然可选 —— 编辑与复制粘贴不受影响。
+   右键原生菜单由 js 里的守卫 + WebView2 的 AreDefaultContextMenusEnabled=false 一起关掉。 */
+html, body {
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+}
+input, textarea, select, [contenteditable=""], [contenteditable="true"], .selectable {
+    -webkit-user-select: text;
+    -moz-user-select: text;
+    -ms-user-select: text;
+    user-select: text;
+}
+img, svg, video { -webkit-user-drag: none; user-drag: none; }
+

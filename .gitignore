@@ -13,5 +13,8 @@ android-app/www/
 android-app/android/app/src/main/assets/public/
 # PC：node scripts/pack.mjs  →  desktop-pet/web-pack
 desktop-pet/web-pack/
+# 桌宠页从 web/ 同步过来的附加资源（背景图 / js），与正式版同一口径不入库
+desktop-pet/www/img/bg/
+desktop-pet/www/js/
 desktop-pet/bin/
 desktop-pet/obj/

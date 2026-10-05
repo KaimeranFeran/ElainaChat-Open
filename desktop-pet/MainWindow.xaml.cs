@@ -63,6 +63,11 @@ public partial class MainWindow : Window
         WebView.CoreWebView2.IsMuted = false;
         WebView.CoreWebView2.Settings.IsZoomControlEnabled = false;
         WebView.CoreWebView2.Settings.IsSwipeNavigationEnabled = false;
+        /* 套壳不要网页味：右键不弹 Chromium 原生菜单（后退 / 重新加载 / 另存为…）。
+           页面侧（app-01-core.js / pet.js）还有一层 contextmenu 守卫，
+           两层一起保证 App 自己的自定义菜单（消息 / 会话 / 日记右键菜单）不受影响。 */
+        WebView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = false;
+        WebView.CoreWebView2.Settings.IsPinchZoomEnabled = false;
         WebView.CoreWebView2.WebMessageReceived += OnWebMessageReceived;
         await WebView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync("window.__pcPetStatus = { enabled: null };");
         WebView.CoreWebView2.NavigationCompleted += (_, navigation) =>
