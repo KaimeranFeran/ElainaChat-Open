@@ -1151,7 +1151,7 @@
     mattermost: [['baseUrl', '服务器地址', 'https://mm.example.com'], ['botToken', 'Bot Token', '', true]],
     misskey: [['baseUrl', '实例地址', 'https://misskey.io'], ['accessToken', '访问令牌', '', true]],
     dingtalk: [['clientId', 'Client ID（AppKey）', ''], ['clientSecret', 'Client Secret（AppSecret）', '', true]],
-    qqofficial: [['appId', 'AppID', ''], ['clientSecret', 'AppSecret', '', true]]
+    qqofficial: [['appId', 'AppID', ''], ['clientSecret', 'AppSecret', '', true], ['sandbox', '沙箱环境', '机器人还没发布时必须勾这个，否则收不到消息', false, 'bool']]
   };
   /* 每个平台一句话说明（写清"要什么"和已知限制，别让用户猜） */
   var PLATFORM_HINTS = {
@@ -1195,8 +1195,15 @@
       '<span class="sw-ttl" style="flex:1">' + esc(a.label) + '</span>' + btn + bindBtn + qrBtn + '</div>' +
       '<div style="font-size:11px;opacity:.8;line-height:1.7;padding:4px 0" id="cpState_' + id + '">' + esc(st.detail || '未连接') + '</div>' +
       (FIELD_DEFS[id] || []).map(function (fd) {
-        return '<div class="sw-setting-theme-row" style="gap:8px;align-items:center">' +
-          '<span style="font-size:11.5px;opacity:.85;flex:0 0 138px">' + esc(fd[1]) + '</span>' +
+        var rowStyle = 'style="gap:8px;align-items:center"';
+        var labelHtml = '<span style="font-size:11.5px;opacity:.85;flex:0 0 138px">' + esc(fd[1]) + '</span>';
+        if (fd[4] === 'bool') {
+          return '<div class="sw-setting-theme-row" ' + rowStyle + '>' + labelHtml +
+            '<label style="display:flex;align-items:center;gap:6px;font-size:11.5px;opacity:.9;cursor:pointer">' +
+            '<input type="checkbox" data-cp-field="' + fd[0] + '" data-cp-id="' + id + '"' + (cfg[fd[0]] ? ' checked' : '') + '>' +
+            '<span>' + esc(fd[2] || '勾选后走沙箱环境') + '</span></label></div>';
+        }
+        return '<div class="sw-setting-theme-row" ' + rowStyle + '>' + labelHtml +
           '<input type="' + (fd[3] ? 'password' : 'text') + '" data-cp-field="' + fd[0] + '" data-cp-id="' + id + '" value="' + esc(cfg[fd[0]] == null ? '' : cfg[fd[0]]) + '" placeholder="' + esc(fd[2]) + '" ' +
           'style="flex:1;min-width:0;font-size:11.5px;padding:5px 8px;border-radius:8px;border:1px solid rgba(120,120,160,.28);background:transparent;color:inherit"></div>';
       }).join('') +
@@ -1284,8 +1291,10 @@
         var name = inp.getAttribute('data-cp-field');
         var pid = inp.getAttribute('data-cp-id');
         var patch = {};
-        if (pid) { patch.platforms = {}; patch.platforms[pid] = {}; patch.platforms[pid][name] = inp.value; }
-        else { patch[name] = name === 'intervalMs' ? Number(inp.value) : inp.value; }
+        /* 勾选框读 checked，其余读 value */
+        var val = inp.type === 'checkbox' ? !!inp.checked : inp.value;
+        if (pid) { patch.platforms = {}; patch.platforms[pid] = {}; patch.platforms[pid][name] = val; }
+        else { patch[name] = name === 'intervalMs' ? Number(inp.value) : val; }
         saveConfig(patch);
       });
     });
