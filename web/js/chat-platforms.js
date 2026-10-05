@@ -1183,9 +1183,10 @@
     var btn = (st.state === 'on' || st.state === 'connecting')
       ? '<button type="button" class="sw-seg" data-cp-act="disconnect" data-cp-id="' + id + '" style="min-height:30px;padding:0 12px">断开</button>'
       : '<button type="button" class="sw-seg" data-cp-act="connect" data-cp-id="' + id + '" style="min-height:30px;padding:0 12px">连接</button>';
+    var qrBtn = '<button type="button" class="sw-seg" data-cp-act="bridgeQr" data-cp-id="' + id + '" style="min-height:30px;padding:0 12px" title="在另一台设备上扫码即可接过这份配置">扫码建桥</button>';
     return '<div style="padding:8px 0 2px;border-top:1px solid rgba(120,120,160,.16)">' +
       '<div style="display:flex;align-items:center;gap:8px">' + dot(st.state) +
-      '<span class="sw-ttl" style="flex:1">' + esc(a.label) + '</span>' + btn + '</div>' +
+      '<span class="sw-ttl" style="flex:1">' + esc(a.label) + '</span>' + btn + qrBtn + '</div>' +
       '<div style="font-size:11px;opacity:.8;line-height:1.7;padding:4px 0" id="cpState_' + id + '">' + esc(st.detail || '未连接') + '</div>' +
       (FIELD_DEFS[id] || []).map(function (fd) {
         return '<div class="sw-setting-theme-row" style="gap:8px;align-items:center">' +
@@ -1224,6 +1225,7 @@
       '<div class="sw-setting-theme-row" style="gap:8px;flex-wrap:wrap;padding-top:8px">' +
       '<button type="button" class="sw-seg" data-cp-act="start" style="min-height:30px;padding:0 12px">全部连接</button>' +
       '<button type="button" class="sw-seg" data-cp-act="stop" style="min-height:30px;padding:0 12px">全部断开</button>' +
+      '<button type="button" class="sw-seg" data-cp-act="bridgeScan" style="min-height:30px;padding:0 12px">扫码接收桥</button>' +
       '<button type="button" class="sw-seg" data-cp-act="clearLog" style="min-height:30px;padding:0 12px">清空日志</button>' +
       '</div>' +
       '<div class="sw-ttl" style="margin-top:6px">最近事件</div>' +
@@ -1250,6 +1252,8 @@
         else if (act === 'start') { memToast('正在连接已启用的平台…'); start(); }
         else if (act === 'stop') { memToast('已全部断开'); stop(); }
         else if (act === 'clearLog') { clearLog(); }
+        else if (act === 'bridgeQr') { showBridgeQr(id); }
+        else if (act === 'bridgeScan') { openScanner(); }
       });
     });
     body.querySelectorAll('[data-cp-pick]').forEach(function (b) {
@@ -1293,6 +1297,152 @@
     return true;
   }
 
+  /* ==================== 扫码建桥（把一份平台配置在两端之间搬运） ====================
+     与「设备互联」的扫码配对同一套路：一端**出示二维码**，另一端**扫一下**（或粘贴口令）就把
+     平台配置接过去，省得在两台机器上各敲一遍 ws 地址 / 令牌。
+     口令格式：ELAINA-BRIDGE/1:<base64url(JSON)>，内容只有平台配置本身，不含模型密钥。 */
+  var BRIDGE_PREFIX = 'ELAINA-BRIDGE/1:';
+  function b64urlEncode(s) {
+    var b = global.btoa(unescape(encodeURIComponent(String(s))));
+    return b.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
+  function b64urlDecode(s) {
+    var t = String(s).replace(/-/g, '+').replace(/_/g, '/');
+    while (t.length % 4) t += '=';
+    return decodeURIComponent(escape(global.atob(t)));
+  }
+  function bridgeText(id) {
+    var payload = { v: 1, platform: id, label: (adapters[id] || {}).label || id, config: config.platforms[id] || {} };
+    return BRIDGE_PREFIX + b64urlEncode(JSON.stringify(payload));
+  }
+  /** 收到口令 → 写进配置并直接连上；返回 { ok, platform, label } */
+  function acceptBridgeText(text) {
+    var raw = String(text || '').trim();
+    if (raw.indexOf(BRIDGE_PREFIX) !== 0) return { ok: false, code: 'BAD_PREFIX', text: '这不是 ElainaChat 的建桥口令' };
+    var payload = null;
+    try { payload = JSON.parse(b64urlDecode(raw.slice(BRIDGE_PREFIX.length))); }
+    catch (e) { return { ok: false, code: 'BAD_PAYLOAD', text: '口令解不开：' + ((e && e.message) || e) }; }
+    if (!payload || !payload.platform || !adapters[payload.platform]) {
+      return { ok: false, code: 'BAD_PLATFORM', text: '口令里的平台不认识：' + (payload && payload.platform) };
+    }
+    var patch = { platforms: {} };
+    patch.platforms[payload.platform] = Object.assign({}, payload.config || {}, { enabled: true });
+    saveConfig(patch);
+    selId = payload.platform;
+    pushLog('ok', '扫码建桥：已接收「' + (payload.label || payload.platform) + '」的配置，正在连接');
+    memToast('已接收「' + (payload.label || payload.platform) + '」的建桥配置，正在连接…');
+    connect(payload.platform);
+    return { ok: true, platform: payload.platform, label: payload.label || payload.platform };
+  }
+  function qrDataUrl(text) {
+    if (typeof global.qrcode !== 'function') return '';
+    try {
+      /* vendor/qrcode.js 默认拉丁-1 截断，中文会糊：切成 UTF-8 */
+      if (global.qrcode.stringToBytesFuncs && global.qrcode.stringToBytesFuncs['UTF-8']) global.qrcode.stringToBytes = global.qrcode.stringToBytesFuncs['UTF-8'];
+      var q = global.qrcode(0, 'M');
+      q.addData(text);
+      q.make();
+      return q.createDataURL(6, 8);
+    } catch (e) { pushLog('error', '二维码生成失败：' + ((e && e.message) || e)); return ''; }
+  }
+  function overlayNode(id, inner) {
+    var old = document.getElementById(id);
+    if (old) old.remove();
+    var o = document.createElement('div');
+    o.id = id;
+    o.style.cssText = 'position:fixed;inset:0;z-index:1300;background:rgba(10,12,20,.72);display:flex;align-items:center;justify-content:center;padding:16px;backdrop-filter:blur(8px);';
+    o.innerHTML = inner;
+    document.body.appendChild(o);
+    return o;
+  }
+  function showBridgeQr(id) {
+    var text = bridgeText(id);
+    var img = qrDataUrl(text);
+    var label = (adapters[id] || {}).label || id;
+    var o = overlayNode('cpBridgeQrOverlay',
+      '<div style="width:100%;max-width:420px;border-radius:20px;padding:16px;background:rgba(20,24,36,.9);border:1px solid rgba(255,255,255,.14);color:#e8eefb">' +
+      '<div style="font-weight:700;font-size:15px;margin-bottom:8px">扫码建桥 · ' + esc(label) + '</div>' +
+      '<div style="font-size:11.5px;opacity:.8;line-height:1.7;margin-bottom:10px">在**另一台设备**上打开「设置 → 聊天平台 → 扫码接收桥」，扫这张码即可把这份配置接过去（含地址与令牌）。口令只在两台设备之间传递，不上传任何服务器。</div>' +
+      '<div style="text-align:center;background:#fff;border-radius:14px;padding:10px">' +
+      (img ? '<img alt="建桥二维码" style="width:260px;height:260px;display:block;margin:0 auto" src="' + img + '">' : '<div style="color:#333;padding:30px 0">二维码库没加载，请用下面的口令</div>') +
+      '</div>' +
+      '<textarea id="cpBridgeText" readonly style="margin-top:10px;width:100%;height:64px;font-size:11px;border-radius:10px;border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.06);color:#e8eefb;padding:6px">' + esc(text) + '</textarea>' +
+      '<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">' +
+      '<button type="button" class="sw-seg" data-cp-bridge="copy" style="flex:1;min-height:32px">复制口令</button>' +
+      '<button type="button" class="sw-seg" data-cp-bridge="use" data-cp-id="' + id + '" style="flex:1;min-height:32px">本机也用它并连接</button>' +
+      '<button type="button" class="sw-seg" data-cp-bridge="close" style="flex:1;min-height:32px">关闭</button>' +
+      '</div></div>');
+    o.querySelector('[data-cp-bridge="close"]').addEventListener('click', function () { o.remove(); });
+    o.addEventListener('click', function (e) { if (e.target === o) o.remove(); });
+    o.querySelector('[data-cp-bridge="use"]').addEventListener('click', function () { var pid = this.getAttribute('data-cp-id'); o.remove(); connect(pid); });
+    o.querySelector('[data-cp-bridge="copy"]').addEventListener('click', function () {
+      var ta = o.querySelector('#cpBridgeText');
+      try { ta.select(); document.execCommand('copy'); memToast('口令已复制'); } catch (e) { memToast('复制失败，请手动全选'); }
+    });
+    return { ok: true, text: text, hasQr: !!img };
+  }
+  var scanStream = null, scanTimer = null;
+  function stopScan() {
+    if (scanTimer) { global.clearInterval(scanTimer); scanTimer = null; }
+    if (scanStream) { try { scanStream.getTracks().forEach(function (t) { t.stop(); }); } catch (e) {} scanStream = null; }
+    var o = document.getElementById('cpScanOverlay');
+    if (o) o.remove();
+  }
+  /** 扫码接收桥：有相机就开相机，没有相机也能粘贴口令（同一个入口） */
+  function openScanner() {
+    var o = overlayNode('cpScanOverlay',
+      '<div style="width:100%;max-width:420px;border-radius:20px;padding:16px;background:rgba(20,24,36,.9);border:1px solid rgba(255,255,255,.14);color:#e8eefb">' +
+      '<div style="font-weight:700;font-size:15px;margin-bottom:8px">扫码接收桥</div>' +
+      '<div style="position:relative;width:100%;aspect-ratio:1/1;border-radius:14px;overflow:hidden;background:#000">' +
+      '<video id="cpScanVideo" playsinline muted style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover"></video>' +
+      '<canvas id="cpScanCanvas" style="display:none"></canvas></div>' +
+      '<div id="cpScanStatus" style="font-size:11.5px;opacity:.85;margin-top:8px;line-height:1.7">把另一台设备上的建桥二维码放进框内…</div>' +
+      '<div style="font-size:11px;opacity:.7;margin-top:8px">没有相机 / 扫不出来？把口令粘到下面：</div>' +
+      '<textarea id="cpScanText" placeholder="ELAINA-BRIDGE/1:…" style="width:100%;height:56px;font-size:11px;border-radius:10px;border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.06);color:#e8eefb;padding:6px"></textarea>' +
+      '<div style="display:flex;gap:8px;margin-top:10px">' +
+      '<button type="button" class="sw-seg" data-cp-scan="paste" style="flex:1;min-height:32px">用口令接入</button>' +
+      '<button type="button" class="sw-seg" data-cp-scan="close" style="flex:1;min-height:32px">取消</button>' +
+      '</div></div>');
+    var status = o.querySelector('#cpScanStatus');
+    function done(text) {
+      var r = acceptBridgeText(text);
+      if (!r.ok) { status.textContent = r.text; return; }
+      stopScan();
+    }
+    o.querySelector('[data-cp-scan="close"]').addEventListener('click', stopScan);
+    o.addEventListener('click', function (e) { if (e.target === o) stopScan(); });
+    o.querySelector('[data-cp-scan="paste"]').addEventListener('click', function () {
+      done(String((o.querySelector('#cpScanText') || {}).value || ''));
+    });
+    var video = o.querySelector('#cpScanVideo');
+    var canvas = o.querySelector('#cpScanCanvas');
+    if (typeof global.jsQR !== 'function') { status.textContent = '扫码库没加载，请用下面的口令接入。'; return o; }
+    if (!global.navigator || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      status.textContent = '这个环境没有相机接口，请用下面的口令接入。';
+      return o;
+    }
+    var ctx = canvas.getContext('2d', { willReadFrequently: true });
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false }).then(function (stream) {
+      scanStream = stream;
+      video.srcObject = stream;
+      return video.play();
+    }).then(function () {
+      scanTimer = global.setInterval(function () {
+        if (video.readyState < 2) return;
+        var w = video.videoWidth, h = video.videoHeight;
+        if (!w || !h) return;
+        canvas.width = w; canvas.height = h;
+        ctx.drawImage(video, 0, 0, w, h);
+        var data = ctx.getImageData(0, 0, w, h);
+        var code = global.jsQR(data.data, w, h, { inversionAttempts: 'dontInvert' });
+        if (code && code.data) done(code.data);
+      }, 240);
+    }).catch(function (e) {
+      status.textContent = '相机打不开（' + ((e && e.message) || e) + '），请用下面的口令接入。';
+    });
+    return o;
+  }
+
   /* ==================== 导出 ==================== */
 
   global.ElainaChatPlatforms = {
@@ -1308,6 +1458,10 @@
     log: pushLog,
     handleIncoming: handleIncoming,
     askAI: askAI,
+    bridgeText: bridgeText,             /* 生成建桥口令（探针/调试用） */
+    acceptBridgeText: acceptBridgeText,  /* 接收建桥口令并连上 */
+    showBridgeQr: showBridgeQr,
+    openScanner: openScanner,
     isRunning: isRunning,
     adapters: Object.keys(adapters)
   };

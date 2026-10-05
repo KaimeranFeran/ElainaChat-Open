@@ -1174,6 +1174,13 @@ html[data-theme="dark"] #sidebar .modal-input::placeholder { color: #98a3b6 !imp
   display: flex !important;
   align-items: center !important;
   gap: 4px !important;
+  /* ★ 缺陷修复（PC 上第 10 个分段被切掉）：分段导航是 nowrap 的一条 flex，
+     加了「聊天平台」之后总宽超过面板宽度（实测 clientW=582 / scrollW=647），
+     最后一项「聊天平台」就溢出到可视区外，看得见一半、点不到。
+     改成可换行 + 限制最大宽度：放不下就折到第二行，窄屏也不会横向溢出。 */
+  flex-wrap: wrap !important;
+  row-gap: 6px !important;
+  max-width: 100% !important;
   padding: 6px !important;
   margin: 0 0 16px !important;
   border-radius: 14px !important;
@@ -2120,3 +2127,15 @@ html.android-webview select {
 html.android-webview .message-more-btn {
   opacity: 1 !important;
 }
+
+/* ==================== 分段导航：永久不被挤出可视区（PC 窄窗 / 大字体） ====================
+   实测背景：设置页分段有 10 项（外观…聊天平台），导航是 nowrap 的一条 flex；
+   在某些窗口宽度 / 字体渲染下总宽会超过面板宽度，最后一项「聊天平台」被切掉一半、点不到。
+   这条规则写在文件末尾（不在任何媒体查询里），保证任何宽度下都生效：放不下就换行。 */
+.sw-setting-nav {
+  flex-wrap: wrap !important;
+  max-width: 100% !important;
+  row-gap: 6px !important;
+  height: auto !important;
+}
+
