@@ -1183,10 +1183,14 @@
     var btn = (st.state === 'on' || st.state === 'connecting')
       ? '<button type="button" class="sw-seg" data-cp-act="disconnect" data-cp-id="' + id + '" style="min-height:30px;padding:0 12px">断开</button>'
       : '<button type="button" class="sw-seg" data-cp-act="connect" data-cp-id="' + id + '" style="min-height:30px;padding:0 12px">连接</button>';
-    var qrBtn = '<button type="button" class="sw-seg" data-cp-act="bridgeQr" data-cp-id="' + id + '" style="min-height:30px;padding:0 12px" title="在另一台设备上扫码即可接过这份配置">扫码建桥</button>';
+    var qrBtn = '<button type="button" class="sw-seg" data-cp-act="bridgeQr" data-cp-id="' + id + '" style="min-height:30px;padding:0 12px" title="把这份配置丢给另一台设备（不是 QQ 登录码）">导出配置码</button>';
+    /* QQ 官方机器人有官方的扫码绑定流程（见 openQqBind），跟上面那个"传配置"是两回事 */
+    var bindBtn = (id === 'qqofficial')
+      ? '<button type="button" class="sw-seg" data-cp-act="qqBind" style="min-height:30px;padding:0 12px" title="用手机 QQ 扫码，自动拿 AppID / AppSecret">扫码绑定</button>'
+      : '';
     return '<div style="padding:8px 0 2px;border-top:1px solid rgba(120,120,160,.16)">' +
       '<div style="display:flex;align-items:center;gap:8px">' + dot(st.state) +
-      '<span class="sw-ttl" style="flex:1">' + esc(a.label) + '</span>' + btn + qrBtn + '</div>' +
+      '<span class="sw-ttl" style="flex:1">' + esc(a.label) + '</span>' + btn + bindBtn + qrBtn + '</div>' +
       '<div style="font-size:11px;opacity:.8;line-height:1.7;padding:4px 0" id="cpState_' + id + '">' + esc(st.detail || '未连接') + '</div>' +
       (FIELD_DEFS[id] || []).map(function (fd) {
         return '<div class="sw-setting-theme-row" style="gap:8px;align-items:center">' +
@@ -1225,7 +1229,7 @@
       '<div class="sw-setting-theme-row" style="gap:8px;flex-wrap:wrap;padding-top:8px">' +
       '<button type="button" class="sw-seg" data-cp-act="start" style="min-height:30px;padding:0 12px">全部连接</button>' +
       '<button type="button" class="sw-seg" data-cp-act="stop" style="min-height:30px;padding:0 12px">全部断开</button>' +
-      '<button type="button" class="sw-seg" data-cp-act="bridgeScan" style="min-height:30px;padding:0 12px">扫码接收桥</button>' +
+      '<button type="button" class="sw-seg" data-cp-act="bridgeScan" style="min-height:30px;padding:0 12px" title="扫另一台设备的配置码，把平台配置搬过来">扫码导入配置</button>' +
       '<button type="button" class="sw-seg" data-cp-act="clearLog" style="min-height:30px;padding:0 12px">清空日志</button>' +
       '</div>' +
       '<div class="sw-ttl" style="margin-top:6px">最近事件</div>' +
@@ -1254,6 +1258,7 @@
         else if (act === 'clearLog') { clearLog(); }
         else if (act === 'bridgeQr') { showBridgeQr(id); }
         else if (act === 'bridgeScan') { openScanner(); }
+        else if (act === 'qqBind') { openQqBind(); }
       });
     });
     body.querySelectorAll('[data-cp-pick]').forEach(function (b) {
@@ -1297,7 +1302,7 @@
     return true;
   }
 
-  /* ==================== 扫码建桥（把一份平台配置在两端之间搬运） ====================
+  /* ==================== 导出配置码（把一份平台配置在两端之间搬运） ====================
      与「设备互联」的扫码配对同一套路：一端**出示二维码**，另一端**扫一下**（或粘贴口令）就把
      平台配置接过去，省得在两台机器上各敲一遍 ws 地址 / 令牌。
      口令格式：ELAINA-BRIDGE/1:<base64url(JSON)>，内容只有平台配置本身，不含模型密钥。 */
@@ -1361,7 +1366,7 @@
     var label = (adapters[id] || {}).label || id;
     var o = overlayNode('cpBridgeQrOverlay',
       '<div style="width:100%;max-width:420px;border-radius:20px;padding:16px;background:rgba(20,24,36,.9);border:1px solid rgba(255,255,255,.14);color:#e8eefb">' +
-      '<div style="font-weight:700;font-size:15px;margin-bottom:8px">扫码建桥 · ' + esc(label) + '</div>' +
+      '<div style="font-weight:700;font-size:15px;margin-bottom:8px">导出配置码 · ' + esc(label) + '</div>' +
       '<div style="font-size:11.5px;opacity:.8;line-height:1.7;margin-bottom:10px">在**另一台设备**上打开「设置 → 聊天平台 → 扫码接收桥」，扫这张码即可把这份配置接过去（含地址与令牌）。口令只在两台设备之间传递，不上传任何服务器。</div>' +
       '<div style="text-align:center;background:#fff;border-radius:14px;padding:10px">' +
       (img ? '<img alt="建桥二维码" style="width:260px;height:260px;display:block;margin:0 auto" src="' + img + '">' : '<div style="color:#333;padding:30px 0">二维码库没加载，请用下面的口令</div>') +
@@ -1443,6 +1448,155 @@
     return o;
   }
 
+  /* ==================== QQ 官方机器人 · 扫码绑定（照 AstrBot 的流程实现） ====================
+     与 astrbot/core/platform/sources/qqofficial/login_registration.py 一致：
+       ① POST https://q.qq.com/lite/create_bind_task { key: base64(32B 随机 AES 密钥) } → task_id
+       ② 二维码内容 = https://q.qq.com/qqbot/openclaw/connect.html?task_id=…&_wv=2
+          这是**网址**，手机 QQ / 相机扫了直接打开绑定页（上一版自定义口令扫不出来就栽在这）
+       ③ POST /lite/poll_bind_result { task_id } → status 0 无 / 1 待扫 / 2 完成 / 3 过期
+          完成后给 bot_appid + bot_encrypt_secret（base64: 12B nonce + 密文 + 16B GCM tag）
+       ④ 用 ① 的密钥做 AES-256-GCM 解密拿到 AppSecret，自动填配置并连接
+     q.qq.com 不回 Access-Control-Allow-Origin：安卓靠 CapacitorHttp（原生发请求）绕开，
+     PC 靠 desktop-pet/LocalProxy 转发。 */
+  var QQ_BIND_HOST = 'https://q.qq.com';
+  var QQ_BIND_INTERVAL_MS = 2000;
+  var qqBindTask = null;
+
+  function isNativeShell() {
+    try { return !!(global.Capacitor || global.__PC_DESKTOP || (navigator && /Android/i.test(String(navigator.userAgent)))); }
+    catch (e) { return false; }
+  }
+  function toBase64(bytes) {
+    var s = '';
+    for (var i = 0; i < bytes.length; i += 1) s += String.fromCharCode(bytes[i]);
+    return global.btoa(s);
+  }
+  function fromBase64(b64) {
+    var s = global.atob(String(b64 || ''));
+    var out = new Uint8Array(s.length);
+    for (var i = 0; i < s.length; i += 1) out[i] = s.charCodeAt(i);
+    return out;
+  }
+  function newBindKey() {
+    var bytes = new Uint8Array(32);
+    if (global.crypto && global.crypto.getRandomValues) global.crypto.getRandomValues(bytes);
+    else for (var i = 0; i < 32; i += 1) bytes[i] = Math.floor(Math.random() * 256);
+    return toBase64(bytes);
+  }
+  function postJson(url, body) {
+    return global.fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify(body)
+    }).then(function (r) {
+      return r.text().then(function (t) {
+        var data = null;
+        try { data = JSON.parse(t); } catch (e) { throw new Error('绑定接口返回不是 JSON：' + String(t).slice(0, 80)); }
+        if (data && data.retcode !== undefined && Number(data.retcode) !== 0) {
+          throw new Error(data.msg || data.message || ('绑定接口失败 retcode=' + data.retcode));
+        }
+        return data || {};
+      });
+    });
+  }
+  /** AES-256-GCM 解密 QQ 回的 AppSecret（12B nonce + 密文 + 16B tag） */
+  function decryptQqSecret(encB64, keyB64) {
+    var subtle = global.crypto && global.crypto.subtle;
+    if (!subtle) return Promise.reject(new Error('这个环境没有 WebCrypto，无法解密 AppSecret'));
+    var raw = fromBase64(encB64);
+    if (raw.length <= 28) return Promise.reject(new Error('AppSecret 密文格式异常'));
+    var nonce = raw.slice(0, 12);
+    var tag = raw.slice(raw.length - 16);
+    var cipher = raw.slice(12, raw.length - 16);
+    var sealed = new Uint8Array(cipher.length + tag.length);
+    sealed.set(cipher, 0);
+    sealed.set(tag, cipher.length);
+    return subtle.importKey('raw', fromBase64(keyB64), { name: 'AES-GCM' }, false, ['decrypt'])
+      .then(function (k) { return subtle.decrypt({ name: 'AES-GCM', iv: nonce, tagLength: 128 }, k, sealed); })
+      .then(function (buf) { return new TextDecoder().decode(buf); });
+  }
+  function stopQqBind(keepTask) {
+    if (qqBindTask && qqBindTask.timer) { global.clearInterval(qqBindTask.timer); qqBindTask.timer = null; }
+    var o = document.getElementById('cpQqBindOverlay');
+    if (o) o.remove();
+    if (!keepTask) qqBindTask = null;
+  }
+  function qqBindStatus(text, kind) {
+    var el = document.getElementById('cpQqBindStatus');
+    if (el) { el.textContent = text; el.style.color = kind === 'error' ? '#ffb4b4' : (kind === 'ok' ? '#9ff0c4' : '#e8eefb'); }
+  }
+  function openQqBind() {
+    stopQqBind(true);
+    var keyB64 = newBindKey();
+    var o = overlayNode('cpQqBindOverlay',
+      '<div style="width:100%;max-width:420px;border-radius:20px;padding:16px;background:rgba(20,24,36,.92);border:1px solid rgba(255,255,255,.14);color:#e8eefb">' +
+      '<div style="font-weight:700;font-size:15px;margin-bottom:8px">扫码绑定 QQ 官方机器人</div>' +
+      '<div style="font-size:11.5px;opacity:.82;line-height:1.7;margin-bottom:10px">用手机 QQ 扫下面这张码（相机 / QQ 扫码都行，它是个网址），在打开的页面上确认绑定；成功后 AppID 与 AppSecret 会自动填好并连接。</div>' +
+      '<div id="cpQqBindQrBox" style="text-align:center;background:#fff;border-radius:14px;padding:10px;min-height:120px"><div style="color:#555;padding:40px 0;font-size:12px">正在取二维码…</div></div>' +
+      '<div id="cpQqBindStatus" style="font-size:11.5px;margin-top:10px;line-height:1.7">正在创建绑定任务…</div>' +
+      '<div style="display:flex;gap:8px;margin-top:10px">' +
+      '<button type="button" class="sw-seg" data-cp-qqbind="refresh" style="flex:1;min-height:32px">换一张</button>' +
+      '<button type="button" class="sw-seg" data-cp-qqbind="close" style="flex:1;min-height:32px">取消</button>' +
+      '</div></div>');
+    o.querySelector('[data-cp-qqbind="close"]').addEventListener('click', function () { stopQqBind(false); });
+    o.addEventListener('click', function (e) { if (e.target === o) stopQqBind(false); });
+    o.querySelector('[data-cp-qqbind="refresh"]').addEventListener('click', function () { openQqBind(); });
+
+    qqBindTask = { taskId: '', keyB64: keyB64, timer: null };
+    postJson(QQ_BIND_HOST + '/lite/create_bind_task', { key: keyB64 }).then(function (data) {
+      var taskId = ((data || {}).data || {}).task_id || '';
+      if (!taskId) throw new Error('绑定任务没有返回 task_id');
+      qqBindTask.taskId = taskId;
+      var url = QQ_BIND_HOST + '/qqbot/openclaw/connect.html?task_id=' + encodeURIComponent(taskId) + '&_wv=2';
+      var img = qrDataUrl(url);
+      var box = document.getElementById('cpQqBindQrBox');
+      if (box) {
+        box.innerHTML = img
+          ? '<img alt="QQ 绑定二维码" style="width:240px;height:240px;display:block;margin:0 auto" src="' + img + '">'
+          : '<div style="color:#333;padding:30px 0;font-size:12px">二维码库没加载，请复制链接到手机打开：<br>' + esc(url) + '</div>';
+      }
+      qqBindStatus('等待手机 QQ 扫码…（二维码几分钟内有效）');
+      qqBindTask.timer = global.setInterval(pollQqBind, QQ_BIND_INTERVAL_MS);
+      pollQqBind();
+    }).catch(function (e) {
+      var hint = isNativeShell() ? '' : '（PC 端可能被 CORS 拦：q.qq.com 不回允许跨域头，见下方说明）';
+      qqBindStatus('创建绑定任务失败：' + ((e && e.message) || e) + hint, 'error');
+      pushLog('error', 'QQ 扫码绑定：创建任务失败 ' + ((e && e.message) || e));
+    });
+  }
+  function pollQqBind() {
+    if (!qqBindTask || !qqBindTask.taskId) return;
+    postJson(QQ_BIND_HOST + '/lite/poll_bind_result', { task_id: qqBindTask.taskId }).then(function (data) {
+      var d = (data || {}).data || {};
+      var status = Number(d.status || 0);
+      if (status === 0 || status === 1) { qqBindStatus('等待手机 QQ 扫码…'); return; }
+      if (status === 3) {
+        qqBindStatus('二维码已过期，点「换一张」重新生成。', 'error');
+        if (qqBindTask && qqBindTask.timer) { global.clearInterval(qqBindTask.timer); qqBindTask.timer = null; }
+        return;
+      }
+      if (status !== 2) { qqBindStatus('绑定状态未知：' + status); return; }
+      var appId = String(d.bot_appid || '').trim();
+      var enc = String(d.bot_encrypt_secret || '').trim();
+      if (!appId || !enc) { qqBindStatus('扫码成功但没拿到完整凭证', 'error'); return; }
+      qqBindStatus('扫码成功，正在解密 AppSecret…', 'ok');
+      decryptQqSecret(enc, qqBindTask.keyB64).then(function (secret) {
+        var patch = { platforms: {} };
+        patch.platforms.qqofficial = Object.assign({}, config.platforms.qqofficial, { appId: appId, clientSecret: secret, enabled: true });
+        saveConfig(patch);
+        stopQqBind(false);
+        pushLog('ok', 'QQ 扫码绑定成功：AppID ' + mask(appId));
+        memToast('QQ 机器人绑定成功，正在连接…');
+        selId = 'qqofficial';
+        try { render(); } catch (e) {}
+        connect('qqofficial');
+      }).catch(function (e) {
+        qqBindStatus('AppSecret 解密失败：' + ((e && e.message) || e), 'error');
+        pushLog('error', 'QQ 扫码绑定：解密失败 ' + ((e && e.message) || e));
+      });
+    }).catch(function (e) { qqBindStatus('轮询失败：' + ((e && e.message) || e), 'error'); });
+  }
+
   /* ==================== 导出 ==================== */
 
   global.ElainaChatPlatforms = {
@@ -1462,6 +1616,8 @@
     acceptBridgeText: acceptBridgeText,  /* 接收建桥口令并连上 */
     showBridgeQr: showBridgeQr,
     openScanner: openScanner,
+    openQqBind: openQqBind,              /* QQ 官方扫码绑定 */
+    decryptQqSecret: decryptQqSecret,    /* AES-256-GCM 解密 AppSecret（探针用） */
     isRunning: isRunning,
     adapters: Object.keys(adapters)
   };
