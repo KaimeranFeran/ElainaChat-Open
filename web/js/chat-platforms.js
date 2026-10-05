@@ -1016,6 +1016,8 @@
       },
       start: function () {
         var cfg = config.platforms.qqofficial;
+        /* 已经连着就别再连：否则会留下一条没人管的旧 socket（扫码绑定后已自动连过一次） */
+        if (sock) { try { closedByUs = true; sock.close(); } catch (e) {} sock = null; }
         var appId = String(cfg.appId || '').trim(), secret = String(cfg.clientSecret || '').trim();
         if (!appId || !secret) { setState('qqofficial', 'error', '还没填 AppID / AppSecret'); return Promise.resolve(false); }
         closedByUs = false;
