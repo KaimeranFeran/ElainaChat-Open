@@ -497,6 +497,7 @@
     try { document.body.classList.add('settings-open'); } catch (e) {}
             elements.settingBaseUrl.value = state.settings.baseUrl || DEFAULT_SETTINGS.baseUrl;
             elements.settingApiKey.value = state.settings.apiKey;
+            if (elements.settingApiProvider) elements.settingApiProvider.value = state.settings.apiProvider === 'direct' ? 'direct' : 'gateway';
             document.getElementById('settingMinimaxApiKey').value = state.settings.minimaxApiKey || '';
             document.getElementById('settingMinimaxVoice').value = FIXED_MINIMAX_VOICE_ID;
             document.getElementById('settingMinimaxModel').value = state.settings.minimaxModel || 'speech-2.8-hd';
@@ -568,7 +569,7 @@
 
             state.settings = {
                 ...state.settings,
-                apiProvider: DEFAULT_SETTINGS.apiProvider,
+                apiProvider: (elements.settingApiProvider && elements.settingApiProvider.value) || DEFAULT_SETTINGS.apiProvider,
                 baseUrl: elements.settingBaseUrl.value.trim() || DEFAULT_SETTINGS.baseUrl,
                 apiKey: elements.settingApiKey.value.trim(),
                 model: DEFAULT_SETTINGS.model,

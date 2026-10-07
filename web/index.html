@@ -505,6 +505,14 @@
                     <div class="modal-label flex items-center gap-2"><span class="text-violet-500">✦</span> 云端连接</div>
                     <div class="space-y-3">
                         <div>
+                            <label class="text-xs text-indigo-500 mb-1 block">服务模式</label>
+                            <select id="settingApiProvider" class="modal-input text-sm">
+                                <option value="gateway">官方网关（默认）</option>
+                                <option value="direct">直连 OpenAI 兼容端点（用自己的 Key）</option>
+                            </select>
+                            <p class="text-[11px] text-indigo-300 leading-relaxed mt-1">官方网关不可用时（例如服务器维护）切到「直连」，填自己的地址与 Key 就能继续聊天。</p>
+                        </div>
+                        <div>
                             <label class="text-xs text-indigo-500 mb-1 block">云端服务地址</label>
                             <input id="settingBaseUrl" autocomplete="off" type="url" inputmode="url" class="modal-input text-sm" placeholder="http://106.14.16.68">
                         </div>

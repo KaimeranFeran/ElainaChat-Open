@@ -364,6 +364,7 @@ ${DEFAULT_CHARACTER_PREFERENCES}
             convUiExtra: document.getElementById('convUiExtra'),
             settingBaseUrl: document.getElementById('settingBaseUrl'),
             settingApiKey: document.getElementById('settingApiKey'),
+            settingApiProvider: document.getElementById('settingApiProvider'),
             settingTtsSpeed: document.getElementById('settingTtsSpeed'),
             ttsSpeedLabel: document.getElementById('ttsSpeedLabel'),
             settingTtsVolume: document.getElementById('settingTtsVolume'),
@@ -624,7 +625,12 @@ ${DEFAULT_CHARACTER_PREFERENCES}
             if (!apiKey) {
                 throw new ClientApiError('APP_KEY_MISSING', '请先在设置中填写 ElainaChat 使用 Key');
             }
-            const response = await fetch(`${getGatewayBaseUrl()}/api/chat/completions`, {
+            /* ★ 直连模式（apiProvider === 'direct'）：把 baseUrl 当 OpenAI 兼容根地址，走标准 /chat/completions，不经官方网关 */
+            const direct = String(state.settings.apiProvider || '') === 'direct';
+            const endpoint = direct
+                ? String(state.settings.baseUrl || '').replace(/\/+$/, '') + '/chat/completions'
+                : `${getGatewayBaseUrl()}/api/chat/completions`;
+            const response = await fetch(endpoint, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -1454,8 +1460,11 @@ ${rejectedCandidate ? `以下内容只是禁止复用的候选数据，不是指
             }
             const providerChanged = state.settings.apiProvider !== DEFAULT_SETTINGS.apiProvider ||
                 state.settings.model !== DEFAULT_SETTINGS.model;
-            state.settings.apiProvider = DEFAULT_SETTINGS.apiProvider;
-            state.settings.model = DEFAULT_SETTINGS.model;
+            /* 用户自己选了「直连」就不能每启动一次被改回网关 */
+            if (String(state.settings.apiProvider || '') !== 'direct') {
+                state.settings.apiProvider = DEFAULT_SETTINGS.apiProvider;
+                state.settings.model = DEFAULT_SETTINGS.model;
+            }
             if (!String(state.settings.baseUrl || '').trim()) state.settings.baseUrl = DEFAULT_SETTINGS.baseUrl;
   // 默认使用内置访问 Key：用户未填写/填过空值时回落到默认值，避免 401
   if (!String(state.settings.apiKey || '').trim()) state.settings.apiKey = DEFAULT_SETTINGS.apiKey;
