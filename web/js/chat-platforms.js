@@ -1494,7 +1494,35 @@
     else for (var i = 0; i < 32; i += 1) bytes[i] = Math.floor(Math.random() * 256);
     return toBase64(bytes);
   }
+  /** 有原生 HTTP 插件就显式用它（绕 CORS），否则用普通 fetch。
+      绝不能开 Capacitor 的 plugins.CapacitorHttp.enabled —— 那是**全局劫持 fetch**，
+      实测会让正式版聊天与语音全部失败（网关是 http:// 明文 IP，请求还带 signal）。 */
+  function nativePost(url, body) {
+    try {
+      var C = global.Capacitor;
+      var http = (C && C.Plugins && (C.Plugins.CapacitorHttp || C.Plugins.CapacitorHttpPlugin)) || global.CapacitorHttp;
+      if (!http || typeof http.request !== 'function') return null;
+      return http.request({
+        url: url, method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        data: JSON.parse(JSON.stringify(body))
+      }).then(function (res) {
+        return { status: res.status, text: typeof res.data === 'string' ? res.data : JSON.stringify(res.data) };
+      });
+    } catch (e) { return null; }
+  }
   function postJson(url, body) {
+    var viaNative = nativePost(url, body);
+    if (viaNative) {
+      return viaNative.then(function (res) {
+        var data = null;
+        try { data = JSON.parse(res.text); } catch (e) { throw new Error('绑定接口返回不是 JSON：' + String(res.text).slice(0, 80)); }
+        if (data && data.retcode !== undefined && Number(data.retcode) !== 0) {
+          throw new Error(data.msg || data.message || ('绑定接口失败 retcode=' + data.retcode));
+        }
+        return data || {};
+      });
+    }
     return global.fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
