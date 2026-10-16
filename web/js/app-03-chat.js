@@ -1119,6 +1119,8 @@
             }
             document.body.classList.add('sidebar-open');
             elements.sidebarOverlay.classList.remove('hidden');
+            /* 抽屉真正可见了，把期间积压的侧栏重建补上（见 renderFolderList 的脏标记） */
+            if (typeof folderListDirty !== 'undefined' && folderListDirty && typeof renderFolderList === 'function') renderFolderList();
         }
 
         let viewportRecoveryGeneration = 0;

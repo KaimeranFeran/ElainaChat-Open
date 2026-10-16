@@ -133,7 +133,20 @@
         }
 
         /* ---- Markdown + LaTeX 渲染（消息正文） ---- */
+        /* ★ 性能：同一条文本在每次重建时都会被完整重解析。按文本缓存结果（文本变了自然落新 key），
+           上限 400 条，超了整体清空。 */
+        const messageTextCache = new Map();
+        const MESSAGE_TEXT_CACHE_MAX = 400;
         function renderMessageText(text) {
+            const cacheKey = String(text == null ? '' : text);
+            const cached = messageTextCache.get(cacheKey);
+            if (cached !== undefined) return cached;
+            const html = renderMessageTextUncached(cacheKey);
+            if (messageTextCache.size >= MESSAGE_TEXT_CACHE_MAX) messageTextCache.clear();
+            messageTextCache.set(cacheKey, html);
+            return html;
+        }
+        function renderMessageTextUncached(text) {
             /* OCR 二轮 C：先挖出三反引号围栏再剥独占行场景标记，避免删掉示例代码块 */
             const FENCE = String.fromCharCode(96, 96, 96);
             const PH0 = String.fromCharCode(0xE100), PH1 = String.fromCharCode(0xE101);
@@ -1187,6 +1200,22 @@
             elements.composerThinkingToggle.checked = value;
         }
 
+        /** 把刚发出的消息增量挂到当前会话尾部；任何异常都退回全量重建，保证行为不回退 */
+        function appendPendingMessageToHistory(conversation, message) {
+            try {
+                const host = elements.conversationHistory;
+                if (!host || !message || state.currentConversationId !== conversation.id) { loadConversation(conversation.id); return; }
+                if (host.querySelector('#msg-' + message.id)) return;
+                host.appendChild(renderMessage(message, { animate: false }));
+                if (typeof syncThinkingReplyForCurrentConversation === 'function') syncThinkingReplyForCurrentConversation();
+                if (typeof maybeShowContinueReplyButton === 'function') maybeShowContinueReplyButton();
+                if (typeof scrollConversationToBottom === 'function') scrollConversationToBottom();
+            } catch (e) {
+                console.warn('[perf] 增量挂载失败，退回全量重建：' + ((e && e.message) || e));
+                loadConversation(conversation.id);
+            }
+        }
+
         function processVoiceInput(text) {
             if (composerImageProcessing) return;
             if (!text.trim()) return;
@@ -1212,7 +1241,8 @@
 
             state.thinkingMessageId = message.id;
 
-            loadConversation(conversation.id);
+            /* ★ 性能：原来是 loadConversation()，会把整条历史全部重建；改为只增量挂这一条 */
+            appendPendingMessageToHistory(conversation, message);
 
             if (conversation.messages.length === 1) {
                 conversation.title = autoNameConversation(conversation.messages);
@@ -1297,7 +1327,8 @@
 
             state.thinkingMessageId = message.id;
 
-            loadConversation(conversation.id);
+            /* ★ 性能：原来是 loadConversation()，会把整条历史全部重建；改为只增量挂这一条 */
+            appendPendingMessageToHistory(conversation, message);
 
             if (conversation.messages.length === 1) {
                 conversation.title = autoNameConversation(conversation.messages);

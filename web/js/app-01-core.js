@@ -3038,6 +3038,7 @@ ${rejectedCandidate ? `以下内容只是禁止复用的候选数据，不是指
             const msg = conv.messages.find(m => String(m.id) === String(messageId));
             if (!msg) return;
             toggleMessageFavorite(msg);
+            ensureMessageRendered(messageId);   /* 窗口化：可能没渲染，先补进 DOM */
             const msgEl = document.getElementById(`msg-${messageId}`);
             if (msgEl) {
                 const fresh = renderMessage(msg, { mount: false, animate: false });
@@ -3592,6 +3593,7 @@ ${rejectedCandidate ? `以下内容只是禁止复用的候选数据，不是指
             switchConversation(fav.conversationId);
 
             setTimeout(() => {
+                ensureMessageRendered(fav.messageId);   /* 窗口化：收藏可能落在渲染窗口之外 */
                 const msgEl = document.getElementById(`msg-${fav.messageId}`);
                 if (msgEl) {
                     msgEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -4253,7 +4255,7 @@ ${rejectedCandidate ? `以下内容只是禁止复用的候选数据，不是指
             return Boolean(conv && conv.messages.length > 0);
         }
 
-        function loadConversation(conversationId) {
+        function loadConversation(conversationId, renderFromOverride) {
             const conv = state.conversations.find(c => c.id === conversationId);
             if (!conv) return;
 
@@ -4277,13 +4279,20 @@ ${rejectedCandidate ? `以下内容只是禁止复用的候选数据，不是指
             elements.notesPage.classList.add('hidden');
             elements.diaryPage.classList.add('hidden');
 
+            /* ★ 性能：只渲染窗口内的最近 MESSAGE_RENDER_WINDOW 条（原来每次全量重建） */
+            const totalMessages = conv.messages.length;
+            const renderFrom = Number.isFinite(renderFromOverride)
+                ? Math.max(0, Math.min(Math.floor(renderFromOverride), Math.max(0, totalMessages - 1)))
+                : Math.max(0, totalMessages - MESSAGE_RENDER_WINDOW);
+            state.messageWindowFrom = renderFrom;
             const fragment = document.createDocumentFragment();
+            if (renderFrom > 0) fragment.appendChild(buildLoadEarlierButton(renderFrom));
             const favoriteMessageIds = new Set(
                 state.favorites
                     .filter(favorite => favorite.type === 'message' && favorite.conversationId === conversationId)
                     .map(favorite => String(favorite.messageId))
             );
-            conv.messages.forEach(message => {
+            conv.messages.slice(renderFrom).forEach(message => {
                 fragment.appendChild(renderMessage(message, {
                     mount: false,
                     animate: false,
@@ -4413,7 +4422,68 @@ ${rejectedCandidate ? `以下内容只是禁止复用的候选数据，不是指
             return div;
         }
 
+        /* ==================== 消息列表窗口化 ==================== */
+        const MESSAGE_RENDER_WINDOW = 60;
+
+        function buildLoadEarlierButton(fromIndex) {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.dataset.cpLoadEarlier = String(fromIndex);
+            btn.className = 'load-earlier-btn';
+            btn.textContent = '载入更早的 ' + Math.min(MESSAGE_RENDER_WINDOW, fromIndex) + ' 条';
+            btn.addEventListener('click', () => loadEarlierMessages());
+            return btn;
+        }
+
+        function loadEarlierMessages() {
+            const conv = getCurrentConversation();
+            const host = elements.conversationHistory;
+            if (!conv || !host) return;
+            const prevFrom = Number(state.messageWindowFrom || 0);
+            if (prevFrom <= 0) return;
+            const nextFrom = Math.max(0, prevFrom - MESSAGE_RENDER_WINDOW);
+            const keepBottomGap = host.scrollHeight - host.scrollTop;
+            const favoriteMessageIds = new Set(
+                state.favorites
+                    .filter(f => f.type === 'message' && f.conversationId === conv.id)
+                    .map(f => String(f.messageId))
+            );
+            const frag = document.createDocumentFragment();
+            if (nextFrom > 0) frag.appendChild(buildLoadEarlierButton(nextFrom));
+            conv.messages.slice(nextFrom, prevFrom).forEach(message => {
+                frag.appendChild(renderMessage(message, { mount: false, animate: false, favorited: favoriteMessageIds.has(String(message.id)) }));
+            });
+            const oldBtn = host.querySelector('[data-cp-load-earlier]');
+            if (oldBtn) oldBtn.replaceWith(frag);
+            else host.insertBefore(frag, host.firstChild);
+            state.messageWindowFrom = nextFrom;
+            host.scrollTop = host.scrollHeight - keepBottomGap;
+        }
+
+        function ensureMessageRendered(messageId) {
+            if (document.getElementById('msg-' + messageId)) return true;
+            const conv = getCurrentConversation();
+            if (!conv) return false;
+            const idx = conv.messages.findIndex(m => String(m.id) === String(messageId));
+            if (idx < 0) return false;
+            if (idx >= Number(state.messageWindowFrom || 0)) return false;
+            loadConversation(conv.id, Math.max(0, idx - 10));
+            return !!document.getElementById('msg-' + messageId);
+        }
+
+        /* ★ 性能：侧栏在手机端是抽屉，不可见时不重建，只记脏标记（打开抽屉时补建） */
+        let folderListDirty = false;
+        function isSidebarVisible() {
+            try {
+                const sb = elements.sidebar;
+                if (!sb || sb.classList.contains('hidden')) return false;
+                if (window.innerWidth > 860) return true;
+                return document.body.classList.contains('sidebar-open');
+            } catch (e) { return true; }
+        }
         function renderFolderList() {
+            if (!isSidebarVisible()) { folderListDirty = true; return; }
+            folderListDirty = false;
             const kw = (elements.sidebarSearchInput.value || '').trim().toLowerCase();
             closeConversationContextMenu();
             elements.folderList.innerHTML = '';
