@@ -15,7 +15,8 @@
     <link rel="stylesheet" href="/vendor/katex/katex.min.css">
     <script src="/vendor/marked/marked.min.js"></script>
     <script src="/vendor/katex/katex.min.js"></script>
-    <script src="/vendor/tailwind.js"></script>
+    <!-- ★ 性能：Tailwind 改为构建期预编译产物（详见 scripts/gen-tailwind-build.mjs 的说明）。 -->
+    <link rel="stylesheet" href="/assets/tailwind.build.css">
     <script src="/vendor/qrcode.js"></script>
     <script src="/vendor/jsQR.js"></script>
     <link rel="stylesheet" href="/assets/app.css">
@@ -223,9 +224,15 @@
                             </div>
                         </div>
                         <div id="initialComposerImagePreview" class="composer-image-preview hidden"></div>
-                        <input id="initialTextInput" autocomplete="off" inputmode="text" enterkeyhint="send" type="text" placeholder="和伊蕾娜说点什么..." class="flex-1 bg-transparent outline-none text-sm text-indigo-950 py-2" onkeydown="if(event.key==='Enter') handleInitialTextSubmit()">
+                        <!-- ★ 输入框：单行 input → 可换行自适应高度的 textarea（rows=1 + JS 自动增高）。
+                             内联 onkeydown 已移除：Enter 统一交给 app-03-chat.js 的 composer 绑定，
+                             顺带修掉"输入法组合期回车误发送"（isComposing）。 -->
+                        <textarea id="initialTextInput" rows="1" autocomplete="off" inputmode="text" enterkeyhint="send" placeholder="和伊蕾娜说点什么..." class="flex-1 bg-transparent outline-none text-sm text-indigo-950 py-2 composer-textarea" data-composer-submit="initial"></textarea>
                         <button onclick="handleMicClick()" class="initial-conversation-mic-btn mic-btn rounded-full flex items-center justify-center" title="语音输入" aria-label="语音输入">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z"/></svg>
+                        </button>
+                        <button id="initialComposerExpandBtn" type="button" class="composer-expand-btn" hidden aria-expanded="false" title="展开输入框" aria-label="展开输入框">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 9l8-5 8 5M4 15l8 5 8-5"/></svg>
                         </button>
                         <button id="initialSendBtn" onclick="handleInitialTextSubmit()" class="composer-send-transition is-hidden btn-primary flex items-center gap-1 text-xs px-4 py-2 flex-shrink-0">
                             发送                        </button>
@@ -381,9 +388,12 @@
                             </div>
                     </div>
                     <div id="composerImagePreview" class="composer-image-preview hidden"></div>
-                    <input id="textInput" autocomplete="off" inputmode="text" enterkeyhint="send" type="text" placeholder="和伊蕾娜说点什么...（Enter 发送）" class="flex-1 text-sm" onkeydown="if(event.key==='Enter') handleTextSubmit()">
+                    <textarea id="textInput" rows="1" autocomplete="off" inputmode="text" enterkeyhint="send" placeholder="和伊蕾娜说点什么...（Enter 发送，Shift+Enter 换行）" class="flex-1 text-sm composer-textarea" data-composer-submit="main"></textarea>
                     <button onclick="handleMicClick()" class="conversation-mic-btn mic-btn rounded-full flex items-center justify-center" title="语音输入" aria-label="语音输入">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z"/></svg>
+                    </button>
+                    <button id="composerExpandBtn" type="button" class="composer-expand-btn" hidden aria-expanded="false" title="展开输入框" aria-label="展开输入框">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 9l8-5 8 5M4 15l8 5 8-5"/></svg>
                     </button>
                     <button id="conversationSendBtn" onclick="handleTextSubmit()" class="composer-send-transition is-hidden conversation-send-btn btn-primary flex items-center text-xs flex-shrink-0" type="button" title="发送" aria-label="发送">
                         <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5"/></svg>

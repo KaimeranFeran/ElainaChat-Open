@@ -829,13 +829,33 @@
 
             elements.initialTextInput.addEventListener('input', updateComposerSendVisibility);
             elements.textInput.addEventListener('input', updateComposerSendVisibility);
+
+            /* ★ 输入框：两个 composer 共用同一套逻辑（自动增高 / 5 行展开收回 / IME 安全的 Enter 发送） */
+            setupAutoGrowComposer({
+                textarea: elements.initialTextInput,
+                expandBtn: document.getElementById('initialComposerExpandBtn'),
+                sendBtn: elements.initialSendBtn,
+                submit: () => handleInitialTextSubmit()
+            });
+            setupAutoGrowComposer({
+                textarea: elements.textInput,
+                expandBtn: document.getElementById('composerExpandBtn'),
+                sendBtn: elements.conversationSendBtn,
+                submit: () => handleTextSubmit()
+            });
             elements.initialTextInput.addEventListener('focus', () => {
                 captureInitialComposerViewportBaseline();
             });
             elements.initialTextInput.addEventListener('blur', () => {
                 scheduleViewportRecovery();
             });
-            elements.textInput.addEventListener('focus', () => keepFocusedComposerVisible(elements.textInput));
+            elements.textInput.addEventListener('focus', () => {
+                captureInitialComposerViewportBaseline();   /* ★ 会话页也要记键盘基线，否则 --kb-inset 永远 0 */
+                keepFocusedComposerVisible(elements.textInput);
+            });
+            elements.textInput.addEventListener('blur', () => {
+                scheduleViewportRecovery();                 /* 键盘收起：重算视口 → 不聚焦时 --kb-inset 归零 */
+            });
             elements.initialComposerMoreBtn.addEventListener('click', (event) => {
                 event.stopPropagation();
                 toggleComposerToolsMenu(elements.initialComposerMoreBtn, elements.initialComposerMoreMenu, elements.initialComposerThinkingToggle);
@@ -1105,6 +1125,54 @@
         let initialComposerViewportBaseline = 0;
         let initialComposerViewportWidth = 0;
 
+        /** ★ 输入框自动换行 + 自适应高度（1~5 行）+ 超过 5 行展开/收回 + IME 安全的 Enter 发送 */
+        function setupAutoGrowComposer(opts) {
+            const ta = opts.textarea;
+            if (!ta) return;
+            const LINE_HEIGHT = 20;
+            const MAX_LINES = 5;
+            const expandBtn = opts.expandBtn;
+            let expanded = false;
+            const measure = () => {
+                const cs = getComputedStyle(ta);
+                const lh = parseFloat(cs.lineHeight) || LINE_HEIGHT;
+                const pad = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0);
+                ta.style.height = 'auto';
+                return { lh: lh, content: Math.max(lh, ta.scrollHeight - pad) };
+            };
+            const grow = () => {
+                const m = measure();
+                ta.style.height = (expanded ? m.content : Math.min(m.content, MAX_LINES * m.lh)) + 'px';
+                const overflows = m.content > MAX_LINES * m.lh + 1;
+                if (expandBtn) {
+                    expandBtn.hidden = !(overflows || expanded);
+                    expandBtn.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+                    expandBtn.title = expanded ? '收回输入框' : '展开输入框';
+                    expandBtn.setAttribute('aria-label', expandBtn.title);
+                }
+            };
+            const setExpanded = (next) => {
+                expanded = !!next;
+                ta.dataset.expanded = expanded ? 'true' : 'false';
+                grow();
+                try { const n = ta.value.length; ta.setSelectionRange(n, n); } catch (e) {}
+            };
+            ta.addEventListener('input', grow);
+            ta.addEventListener('focus', grow);
+            ta.addEventListener('keydown', (e) => {
+                if (e.key !== 'Enter') return;
+                if (e.shiftKey) return;
+                if (e.isComposing || e.keyCode === 229) return;
+                e.preventDefault();
+                opts.submit();
+                grow();
+            });
+            if (expandBtn) expandBtn.addEventListener('click', (e) => { e.stopPropagation(); setExpanded(!expanded); });
+            if (opts.sendBtn) opts.sendBtn.addEventListener('click', () => window.setTimeout(grow, 0));
+            setExpanded(false);
+            ta.__elainaGrow = grow;
+        }
+
         function isViewportTextEntryFocused() {
             const active = document.activeElement;
             if (!active) return false;
@@ -1117,6 +1185,7 @@
             document.body.classList.remove('initial-keyboard-tracking');
             document.body.classList.remove('initial-keyboard-visible');
             document.documentElement.style.setProperty('--initial-keyboard-inset', '0px');
+            document.documentElement.style.setProperty('--kb-inset', '0px');
         }
 
         function captureInitialComposerViewportBaseline() {
@@ -1137,11 +1206,14 @@
         }
 
         function syncInitialComposerKeyboardState(viewportHeight) {
+            /* ★ 键盘吸附：判据放宽到"任意输入控件"，会话页输入条也能吃到键盘避让 */
+            const composerFocused = isViewportTextEntryFocused() && window.innerWidth <= 860;
             const initialInputFocused = document.activeElement === elements.initialTextInput && window.innerWidth <= 860;
             const trackingInitialKeyboard = window.innerWidth <= 860 && initialComposerViewportBaseline > 0;
-            if (!initialInputFocused && !trackingInitialKeyboard) {
+            if (!composerFocused && !trackingInitialKeyboard) {
                 document.body.classList.remove('initial-keyboard-visible');
                 document.documentElement.style.setProperty('--initial-keyboard-inset', '0px');
+                document.documentElement.style.setProperty('--kb-inset', '0px');
                 return;
             }
             const viewportWidth = Number(window.visualViewport?.width) || Number(window.innerWidth) || 0;
@@ -1156,9 +1228,11 @@
             const keyboardWasVisible = document.body.classList.contains('initial-keyboard-visible');
             const keyboardVisible = keyboardWasVisible
                 ? keyboardInset > 8
-                : initialInputFocused && keyboardInset > keyboardThreshold;
+                : composerFocused && keyboardInset > keyboardThreshold;
+            const publishedInset = composerFocused ? keyboardInset : 0;
             document.documentElement.style.setProperty('--initial-stable-height', `${Math.round(initialComposerViewportBaseline)}px`);
             document.documentElement.style.setProperty('--initial-keyboard-inset', `${Math.round(keyboardInset)}px`);
+            document.documentElement.style.setProperty('--kb-inset', `${Math.round(publishedInset)}px`);
             if (!initialInputFocused && !keyboardVisible) {
                 resetInitialComposerKeyboardState();
                 return;

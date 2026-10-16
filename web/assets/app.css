@@ -10,6 +10,8 @@
             --viewport-offset-top: 0px;
             --initial-stable-height: 100vh;
             --initial-keyboard-inset: 0px;
+            /* ★ 键盘吸附：软键盘占掉的高度（由 app-03-chat.js 按 visualViewport 写入） */
+            --kb-inset: 0px;
             --safe-top: env(safe-area-inset-top, 0px);
             --safe-right: env(safe-area-inset-right, 0px);
             --safe-bottom: env(safe-area-inset-bottom, 0px);
@@ -737,6 +739,16 @@
             color: var(--text-heading);
         }
         #initialTextInput::placeholder { color: rgba(99, 102, 241, 0.55); }
+        /* ★ 输入框改造：可换行、随内容增高；1~5 行自适应，超过 5 行出现「展开」，展开后 50vh 内滚动 */
+        .composer-textarea { resize: none; overflow-y: hidden; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 20px; max-height: 116px; align-self: center; }
+        .composer-textarea[data-expanded='true'] { max-height: min(50vh, 320px); overflow-y: auto; }
+        .composer-expand-btn { flex: 0 0 auto; width: 32px; height: 32px; border-radius: 9999px; display: inline-flex; align-items: center; justify-content: center; border: 0; background: transparent; color: inherit; opacity: 0.62; cursor: pointer; }
+        .composer-expand-btn[hidden] { display: none !important; }
+        .composer-expand-btn:hover { opacity: 1; background: rgba(255, 255, 255, 0.5); }
+        .composer-expand-btn[aria-expanded='true'] svg { transform: rotate(180deg); }
+        /* ★ 消息列表窗口化：只渲染最近 N 条，顶部这个按钮用来往回补 */
+        .load-earlier-btn { display: block; margin: 4px auto 14px; padding: 6px 14px; font-size: 12px; border-radius: 9999px; border: 1px solid rgba(120, 120, 160, 0.28); background: rgba(255, 255, 255, 0.5); color: inherit; cursor: pointer; }
+        .load-earlier-btn:hover { background: rgba(255, 255, 255, 0.75); }
         .initial-composer-shell .btn-primary {
             min-height: 40px;
             padding: 0 18px;
@@ -2632,9 +2644,9 @@
             }
             body.initial-keyboard-tracking #greetingText { font-size: 28px; }
             #greetingText { font-size: 28px; }
-            #conversationHistory { padding: 18px 16px 112px; }
+            #conversationHistory { padding: 18px 16px calc(112px + var(--kb-inset)); }
             #conversationHistory > .message-item > .flex > .flex-1 { max-width: 88%; }
-            #inputBar { box-sizing: border-box; width: 100%; max-width: 100%; padding: 10px calc(12px + var(--safe-right)) calc(14px + var(--safe-bottom)) calc(12px + var(--safe-left)); overflow: visible; }
+            #inputBar { box-sizing: border-box; width: 100%; max-width: 100%; padding: 10px calc(12px + var(--safe-right)) calc(14px + var(--safe-bottom) + var(--kb-inset)) calc(12px + var(--safe-left)); overflow: visible; }
             #inputBar .conversation-composer { box-sizing: border-box; width: 100%; max-width: 100%; min-width: 0; min-height: 58px; margin-left: 0; margin-right: 0; padding: 7px 8px 7px 10px; border-radius: 18px; }
             #inputBar .composer-tools,
             #inputBar #textInput,
