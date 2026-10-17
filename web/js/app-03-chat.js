@@ -760,11 +760,35 @@
             }, 45);
         }
 
+        // ==================== 版本号（单一来源） ====================
+
+        /* 侧栏左下角原来写死 "v2.1.0"，与 package.json(1.3.4)、android build.gradle(1.3.1)
+           三处各说各话 —— 谁也不知道装到手机上的是哪一版。
+           现在只读 window.ELAINA_APP_VERSION，而它由 web/js/version.js 提供，
+           那个文件是 scripts/sync-version.mjs 从仓库根 version.json 生成的，
+           校验由 node scripts/sync-version.mjs --check 兜住（改版本只改 version.json）。 */
+
+        function currentAppVersion() {
+            try {
+                if (typeof window !== 'undefined' && window.ELAINA_APP_VERSION) return String(window.ELAINA_APP_VERSION);
+            } catch (e) { /* ignore */ }
+            return '0.0.0';
+        }
+
+        /** 侧栏左下角的版本号（index.html 里是 <span id="appVersionLabel">v—</span>） */
+        function renderAppVersion() {
+            try {
+                const el = document.getElementById('appVersionLabel');
+                if (el) el.textContent = 'v' + currentAppVersion();
+            } catch (e) { /* 显示失败不能影响启动 */ }
+        }
+
         // ==================== 初始化====================
 
         function init() {
             syncViewportHeight({ preferWindowHeight: true });
             loadSettings();
+            renderAppVersion();
             loadCharacterCard();
             loadUserIdentity();
             loadConversations();

@@ -116,7 +116,10 @@
             </div>
 
             <div class="px-4 py-3 border-t border-white/50 flex-shrink-0">
-                <div class="text-center text-[10px] text-indigo-200 select-none">v2.1.0 · 魔女之旅</div>
+                <!-- 版本号不写死：由 renderAppVersion()（app-03-chat.js）从单一来源
+                     window.ELAINA_APP_VERSION 填进 #appVersionLabel
+                     （web/js/version.js ← 仓库根 version.json ← node scripts/sync-version.mjs） -->
+                <div class="text-center text-[10px] text-indigo-200 select-none"><span id="appVersionLabel">v—</span> · 魔女之旅</div>
             </div>
         </aside>
 
@@ -793,6 +796,8 @@
     </div>
 
     
+<!-- 版本号单一来源：必须在 app-01-core.js 之前（侧栏 / 其它模块启动时就要能读到） -->
+<script src="/js/version.js"></script>
 <script src="/js/app-01-core.js"></script>
 <script src="/js/app-02-message.js"></script>
 <script src="/js/app-03-chat.js"></script>

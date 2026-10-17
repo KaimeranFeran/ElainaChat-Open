@@ -541,6 +541,12 @@
       log: findIdx(s => labelOf(s).indexOf('日志') >= 0),
       platform: findIdx(s => s.id === 'chatPlatformSettingSection')
     };
+    /* ★ 新分段必须进一个分组，否则下面 apply() 的 .hidden 循环会把它当成"不属于当前分组"
+       整段隐藏 —— DOM 里有、界面上没有（正式版真踩过这个坑）。
+       宿主独占分段（正式版的 host / widget / rag，开源版没有这三个模块）的做法是照旧登记
+       一个 idx：findIdx 找不到就返回 -1，末尾的 .filter(g => g.idx.every(i => i >= 0))
+       会把整个分组摘掉，导航里不会多出一个点不开的空分段。
+       所以：新增任何 section 之后，必须在这里给它一个归属分组。 */
     const groups = [
       { label: '外观', idx: [idx.theme] },
       { label: '连接', idx: [idx.cloud, idx.asr] },
