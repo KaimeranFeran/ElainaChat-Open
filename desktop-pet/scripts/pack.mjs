@@ -17,7 +17,7 @@ if (!src) {
   console.error('[pack] 找不到 web 源目录，试过：\n  ' + candidates.join('\n  ') + '\n（可用 ELAINA_WEB_DIR 指定）');
   process.exit(1);
 }
-const gateway = process.env.ELAINA_DEFAULT_GW || 'http://106.14.16.68';
+const gateway = process.env.ELAINA_DEFAULT_GW || '';
 
 /* ---------- 1) 主界面：web -> web-pack（PC 聊天界面） ---------- */
 const dst = path.join(root, 'web-pack');

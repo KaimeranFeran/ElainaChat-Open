@@ -17,7 +17,7 @@
         })();
 
         const ANDROID_GATEWAY_CLIENT = true;
-        const FIXED_MINIMAX_VOICE_ID = 'Elaina0032T20260715183232';
+        const FIXED_MINIMAX_VOICE_ID = '';
         const LEGACY_DEFAULT_GREETING = '欢迎。先说明一下，我是伊蕾娜，正在旅行的灰之魔女。您似乎来自一个没有魔法的世界——那么，今天想和我聊些什么？';
         const DEFAULT_CHARACTER_PREFERENCES = `【伊蕾娜的好恶与偏好】
 
@@ -165,7 +165,7 @@ ${DEFAULT_CHARACTER_PREFERENCES}
 
         const DEFAULT_SETTINGS = {
             apiProvider: 'gateway',
-            baseUrl: 'http://106.14.16.68',
+            baseUrl: '',
             apiKey: '',   /* 开源版：不内嵌任何 Key，由用户自行填写（BYOK） */
             model: 'MiniMax-M3',
             minimaxApiKey: '',
@@ -181,7 +181,7 @@ ${DEFAULT_CHARACTER_PREFERENCES}
             autoMemory: false,
             memoryEvery: 6
         };
-        const ANNOUNCEMENT_URL = 'http://106.14.16.68/announcement.json';
+        const ANNOUNCEMENT_URL = '';
 
             const ELENA_QUOTES = [
         { text: '旅途的意义，不在于终点，而在于沿途遇见的每一个你。', source: '《魔女之旅》' },
