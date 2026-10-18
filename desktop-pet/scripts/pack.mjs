@@ -3,15 +3,14 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-/* 允许用环境变量覆盖（换机/CI 可移植），默认取同级的官方仓库 web 目录。
-   ★ 之前这里少了一层 '..'：root 是 <仓库>/desktop-pet，只回一级得到的是 <仓库>/ElainaChat-Official/web，
-   而两个仓库实际是**平级**的（F:\elnchat\ElainaChat-Official 与 F:\elnchat\ElainaChat-Open），
-   于是 PC 打包这一步在这台机器上直接报「找不到 web 源目录」——打不出 PC 外壳。
-   现在按候选顺序找：环境变量 → 平级官方仓 → 嵌套在仓库里的官方仓（旧布局）。 */
+/* ★ 只吃**本仓库自己的** web/ —— 绝不再回退到 Official 的网页。
+   原因：官方网页里有 client-auth.js（客户端证明）与官方网关默认值，
+   一旦被拷进开源包的 web-pack，开源 PC 版就会被网关当成官方客户端放行，
+   破坏「开源版不回复」这条底线。
+   ELAINA_WEB_DIR 仍可覆盖（给 CI 用），但默认值只认自己。 */
 const candidates = [];
 if (process.env.ELAINA_WEB_DIR) candidates.push(path.resolve(process.env.ELAINA_WEB_DIR));
-candidates.push(path.resolve(root, '..', '..', 'ElainaChat-Official', 'web'));
-candidates.push(path.resolve(root, '..', 'ElainaChat-Official', 'web'));
+candidates.push(path.resolve(root, '..', 'web'));
 const src = candidates.find((p) => existsSync(p));
 if (!src) {
   console.error('[pack] 找不到 web 源目录，试过：\n  ' + candidates.join('\n  ') + '\n（可用 ELAINA_WEB_DIR 指定）');
