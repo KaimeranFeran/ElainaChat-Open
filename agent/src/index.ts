@@ -16,7 +16,7 @@ import path from 'node:path';
 import { createInterface } from 'node:readline';
 import { pathToFileURL } from 'node:url';
 import { DEFAULT_LIMITS, validateAgentConfig, type AgentAccess, type AgentConfig, type AgentModelConfig, type AgentProtocol } from './config.ts';
-import { AGENT_ERROR, fail, type ToolResult } from './errors.ts';
+import { AGENT_ERROR, fail, ok, type ToolResult } from './errors.ts';
 import {
   createKernel,
   installPlugin,
@@ -25,13 +25,23 @@ import {
   type JsonSchema,
   type Kernel,
   type Plugin,
+  type PluginApi,
   type PluginManifest,
+  type ToolDisposer,
   type ToolSpec,
 } from './kernel/index.ts';
-import { AGENT_API_VERSION } from './kernel/plugin.ts';
+import {
+  AGENT_API_VERSION,
+  manifestCommandDeclarations,
+  normalizedToolDeclarations,
+  type PluginApiOptions,
+  type PluginToolDeclaration,
+  type PluginToolHandler,
+} from './kernel/plugin.ts';
 import { createModelAdapter, type ModelAdapter } from './model/index.ts';
-import type { ToolCall, ToolSpecForModel } from './model/types.ts';
+import { joinUrl, type ToolCall, type ToolSpecForModel } from './model/types.ts';
 import { NdjsonDecoder, encodeMessage, type AgentMessage } from './protocol/ndjson.ts';
+import { checkAgentBaseUrl } from './security/gateway-blocklist.ts';
 import {
   describeCall,
   FINISH_TOOL_NAME,
@@ -101,6 +111,8 @@ export interface AgentServerOptions {
   listTools?: () => Array<{ name: string; description?: string }>;
   /** 设置页「测试连接」：注入搜索测试实现（main 里接 web-search.ts；测试可离线注入） */
   searchTest?: SearchTestRunner;
+  /** 模型列表查询用的 fetch（测试注入，避免联网；生产默认 globalThis.fetch） */
+  modelsFetch?: typeof fetch;
 }
 
 /** search_test 请求（UI 设置页传入当前表单值，不落盘） */
@@ -112,6 +124,50 @@ export interface SearchTestRequest {
 }
 
 export type SearchTestRunner = (request: SearchTestRequest) => Promise<{ ok: boolean; message: string }>;
+
+/** 模型列表查询超时（设计约定 15s） */
+export const MODEL_LIST_TIMEOUT_MS = 15_000;
+
+/** 把 OpenAI / Anthropic 两种 /models 返回归一成 [{id, name}] */
+export function extractModelList(payload: unknown): Array<{ id: string; name: string }> {
+  const source =
+    Array.isArray(payload)
+      ? payload
+      : payload && typeof payload === 'object'
+        ? ((payload as Record<string, unknown>).data ?? (payload as Record<string, unknown>).models ?? null)
+        : null;
+  const list = Array.isArray(source) ? source : [];
+  const models: Array<{ id: string; name: string }> = [];
+  const seen = new Set<string>();
+  for (const item of list) {
+    let id = '';
+    let name = '';
+    if (typeof item === 'string') {
+      id = item.trim();
+      name = id;
+    } else if (item && typeof item === 'object') {
+      const record = item as Record<string, unknown>;
+      id =
+        typeof record.id === 'string'
+          ? record.id.trim()
+          : typeof record.model === 'string'
+            ? record.model.trim()
+            : typeof record.name === 'string'
+              ? record.name.trim()
+              : '';
+      name =
+        typeof record.display_name === 'string'
+          ? record.display_name.trim()
+          : typeof record.name === 'string'
+            ? record.name.trim()
+            : id;
+    }
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    models.push({ id, name: name || id });
+  }
+  return models;
+}
 
 export interface AgentServer {
   /** 喂一行输入（可带/不带换行，内部统一按 NDJSON 处理） */
@@ -418,6 +474,73 @@ export function createAgentServer(options: AgentServerOptions): AgentServer {
     }
   };
 
+  const handleModelsRequest = (message: AgentMessage): void => {
+    const requestId = typeof message.requestId === 'string' ? message.requestId : '';
+    const baseUrl = typeof message.baseUrl === 'string' ? message.baseUrl.trim() : '';
+    const apiKey = typeof message.apiKey === 'string' ? message.apiKey : '';
+    const protocol = message.protocol;
+    const protocolOk = protocol === 'openai' || protocol === 'openai-responses' || protocol === 'anthropic';
+    if (!requestId || !baseUrl || !protocolOk) {
+      writeError(AGENT_ERROR.PROTOCOL_INVALID, 'models_request 非法：需要 requestId、baseUrl 与 protocol（openai / openai-responses / anthropic）。');
+      return;
+    }
+
+    // 官方网关黑名单：绝不发请求（与 validateAgentConfig 同一判定）
+    const blocked = checkAgentBaseUrl(baseUrl);
+    if (blocked.blocked) {
+      writeMessage({ type: 'models_result', requestId, ok: false, models: [], message: blocked.detail });
+      return;
+    }
+
+    const fetchImpl = options.modelsFetch ?? globalThis.fetch;
+    if (typeof fetchImpl !== 'function') {
+      writeMessage({ type: 'models_result', requestId, ok: false, models: [], message: '当前运行环境没有 fetch，无法查询模型列表。' });
+      return;
+    }
+
+    const isAnthropic = protocol === 'anthropic';
+    const url = isAnthropic ? joinUrl(baseUrl, '/v1/models') : joinUrl(baseUrl, '/models');
+    const headers: Record<string, string> = isAnthropic
+      ? { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', accept: 'application/json' }
+      : { authorization: 'Bearer ' + apiKey, accept: 'application/json' };
+
+    void (async () => {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), MODEL_LIST_TIMEOUT_MS);
+      try {
+        const response = await fetchImpl(url, { method: 'GET', headers, signal: controller.signal });
+        const text = await response.text();
+        if (!response.ok) {
+          writeMessage({
+            type: 'models_result',
+            requestId,
+            ok: false,
+            models: [],
+            message: redactSecrets('查询模型列表失败：HTTP ' + response.status + (text ? '：' + text.slice(0, 300) : ''), apiKey),
+          });
+          return;
+        }
+        let payload: unknown;
+        try {
+          payload = JSON.parse(text);
+        } catch {
+          writeMessage({ type: 'models_result', requestId, ok: false, models: [], message: '模型列表返回的不是 JSON。' });
+          return;
+        }
+        const models = extractModelList(payload);
+        writeMessage({ type: 'models_result', requestId, ok: true, models, message: '已获取 ' + models.length + ' 个模型。' });
+      } catch (error) {
+        const raw =
+          error instanceof Error && error.name === 'AbortError'
+            ? '查询模型列表超时（' + Math.round(MODEL_LIST_TIMEOUT_MS / 1000) + ' 秒）。'
+            : '查询模型列表失败：' + errorMessage(error);
+        writeMessage({ type: 'models_result', requestId, ok: false, models: [], message: redactSecrets(raw, apiKey) });
+      } finally {
+        clearTimeout(timer);
+      }
+    })();
+  };
+
   const handleSearchTest = (message: AgentMessage): void => {
     const requestId = typeof message.requestId === 'string' ? message.requestId : '';
     const provider = message.provider;
@@ -479,6 +602,9 @@ export function createAgentServer(options: AgentServerOptions): AgentServer {
         return;
       case 'search_test':
         handleSearchTest(message);
+        return;
+      case 'models_request':
+        handleModelsRequest(message);
         return;
       default:
         writeError(AGENT_ERROR.PROTOCOL_INVALID, '未知消息类型：' + message.type);
@@ -565,6 +691,8 @@ interface BuiltinToolModule {
     search?: AgentConfig['search'];
     signal?: AbortSignal;
     runId?: string;
+    /** 插件 shell 工具用：ELAINA_AGENT_ARGS 等附加环境变量 */
+    env?: NodeJS.ProcessEnv;
   }) => unknown;
   isSearchAvailable?: (search?: AgentConfig['search']) => boolean;
 }
@@ -619,25 +747,252 @@ async function findPluginEntry(pluginDir: string): Promise<string | null> {
   return null;
 }
 
+/** 插件工具的运行描述：handler 通道或 manifest command 通道（C 方案双通道） */
+export interface PluginToolRuntime {
+  /** 工具名（与 ToolsService 注册名一致） */
+  name: string;
+  pluginId: string;
+  kind: 'handler' | 'command';
+  handler?: PluginToolHandler;
+  /** command 模板（{{arg}} 占位） */
+  command?: string;
+  timeoutMs?: number;
+  /** command 执行目录（相对工作区，已校验不逃逸） */
+  cwd?: string;
+}
+
+export interface PluginCommandRunOptions {
+  workspace: string;
+  timeoutMs?: number;
+  env: NodeJS.ProcessEnv;
+  signal?: AbortSignal;
+}
+
+/** 执行插件 shell 命令；生产用 createToolExecutor 的 run_command 语义，测试可注入 */
+export type PluginCommandRunner = (command: string, options: PluginCommandRunOptions) => Promise<ToolResult>;
+
+export const DEFAULT_PLUGIN_HANDLER_TIMEOUT_MS = 30_000;
+
 export interface PluginLoadResult {
   directory: string;
   /** 加载成功的 manifest.id */
   loaded: string[];
   /** 加载失败的目录名（失败隔离：只写 stderr，不影响内置工具） */
   failed: string[];
+  /** 可执行的插件工具（handler 或 manifest command） */
+  tools: Map<string, PluginToolRuntime>;
+  /** 解析成功的 manifest（宿主日志/调试用） */
+  manifests: PluginManifest[];
 }
 
 export interface PluginLoadOptions {
   log?: (message: string) => void;
   /** 日志脱敏用的密钥（绝不把 Key 写进 stderr） */
   secret?: string;
+  /** handler 默认超时；manifest 工具对象里的 timeoutMs 优先 */
+  handlerTimeoutMs?: number;
+}
+
+function shellQuote(value: string): string {
+  if (value === '') return "''";
+  // Windows PowerShell / PowerShell 7：单引号包裹，内部单引号写两遍
+  return "'" + value.replace(/'/g, "''") + "'";
+}
+
+/** {{name}} 参数替换：值用单引号包裹防注入；未知占位保留原样，便于插件作者排错 */
+export function substituteCommandArgs(command: string, args: Record<string, unknown>): string {
+  return String(command ?? '').replace(/\{\{\s*([A-Za-z0-9_.-]+)\s*\}\}/g, (whole: string, key: string) => {
+    if (!Object.prototype.hasOwnProperty.call(args, key)) return whole;
+    const value = args[key];
+    return shellQuote(value === undefined || value === null ? '' : String(value));
+  });
+}
+
+function resolvePluginCwd(workspace: string, cwd?: string): { ok: true; path: string } | { ok: false; message: string } {
+  const root = path.resolve(workspace);
+  if (!cwd) return { ok: true, path: root };
+  const target = path.resolve(root, cwd);
+  const relative = path.relative(root, target);
+  if (relative.startsWith('..') || path.isAbsolute(relative)) {
+    return { ok: false, message: '插件命令的 cwd 逃逸出工作区：' + cwd };
+  }
+  return { ok: true, path: target };
+}
+
+/** 插件返回值归一：ToolResult / string / object / null 都接受；非法结构按失败数据处理 */
+export function normalizePluginToolResult(value: unknown): ToolResult {
+  if (value && typeof value === 'object' && typeof (value as { ok?: unknown }).ok === 'boolean') {
+    const candidate = value as Partial<ToolResult>;
+    const result: ToolResult = {
+      ok: candidate.ok as boolean,
+      code: (typeof candidate.code === 'string' ? candidate.code : candidate.ok ? 'OK' : AGENT_ERROR.TOOL_FAILED) as ToolResult['code'],
+      message: typeof candidate.message === 'string' ? candidate.message : '',
+    };
+    if (candidate.data !== undefined) result.data = candidate.data;
+    if (typeof candidate.retryable === 'boolean') result.retryable = candidate.retryable;
+    if (typeof candidate.needs_user === 'boolean') result.needs_user = candidate.needs_user;
+    if (typeof candidate.denied === 'boolean') result.denied = candidate.denied;
+    return result;
+  }
+  if (typeof value === 'string') return ok(undefined, value);
+  if (value === undefined || value === null) return ok(undefined, '');
+  return ok(value, '');
+}
+
+class PluginToolTimeoutError extends Error {}
+class PluginToolAbortError extends Error {}
+
+function runWithPluginTimeout<T>(run: (signal: AbortSignal) => Promise<T>, timeoutMs: number, outer?: AbortSignal): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const controller = new AbortController();
+    let settled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const settle = (finish: () => void): void => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      outer?.removeEventListener('abort', onAbort);
+      finish();
+    };
+    const onAbort = (): void => {
+      controller.abort();
+      settle(() => reject(new PluginToolAbortError('插件工具执行被取消')));
+    };
+    timer = setTimeout(() => {
+      controller.abort();
+      settle(() => reject(new PluginToolTimeoutError('插件工具执行超时')));
+    }, Math.max(1, Math.trunc(timeoutMs)));
+    if (outer) {
+      if (outer.aborted) onAbort();
+      else outer.addEventListener('abort', onAbort, { once: true });
+    }
+    try {
+      run(controller.signal).then(
+        (value) => settle(() => resolve(value)),
+        (error) => settle(() => reject(error)),
+      );
+    } catch (error) {
+      // handler 同步抛错：走同一套 settle，保证超时定时器被清掉
+      settle(() => reject(error));
+    }
+  });
+}
+
+async function runPluginCommandDefault(command: string, options: PluginCommandRunOptions): Promise<ToolResult> {
+  try {
+    const toolsModule = (await import('./tools/index.ts')) as unknown as BuiltinToolModule;
+    if (typeof toolsModule.createToolExecutor !== 'function') {
+      return fail(AGENT_ERROR.TOOL_FAILED, '工具层未就绪，无法执行插件命令。');
+    }
+    const created = toolsModule.createToolExecutor({
+      workspace: options.workspace,
+      access: 'full',
+      signal: options.signal,
+      env: options.env,
+    }) as ExecutorLikeObject;
+    if (!created || typeof created.execute !== 'function') {
+      return fail(AGENT_ERROR.TOOL_FAILED, '执行器不支持插件命令通道。');
+    }
+    const args: Record<string, unknown> = { command };
+    if (options.timeoutMs) args.timeoutMs = options.timeoutMs;
+    return await created.execute('run_command', args, { signal: options.signal });
+  } catch (error) {
+    return fail(AGENT_ERROR.TOOL_FAILED, '插件命令执行失败：' + errorMessage(error));
+  }
+}
+
+export interface PluginToolRunOptions {
+  workspace: string;
+  signal?: AbortSignal;
+  /** 注入 command 执行器（测试）；缺省走 createToolExecutor 的 run_command */
+  runCommand?: PluginCommandRunner;
+}
+
+/**
+ * 执行一个插件工具。绝不抛异常：handler 抛错/超时/取消都归一成 ToolResult。
+ * command 通道先做 cwd 逃逸校验，再替换 {{arg}} 并把完整参数放进 ELAINA_AGENT_ARGS。
+ */
+export async function executePluginTool(
+  tool: PluginToolRuntime,
+  args: Record<string, unknown>,
+  options: PluginToolRunOptions,
+): Promise<ToolResult> {
+  const timeoutMs = tool.timeoutMs && tool.timeoutMs > 0 ? tool.timeoutMs : DEFAULT_PLUGIN_HANDLER_TIMEOUT_MS;
+  try {
+    if (tool.kind === 'handler') {
+      const handler = tool.handler;
+      if (typeof handler !== 'function') return fail(AGENT_ERROR.TOOL_FAILED, '插件工具 ' + tool.name + ' 没有 handler。');
+      const value = await runWithPluginTimeout(
+        (signal) => Promise.resolve(handler(args, { toolName: tool.name, workspace: options.workspace, signal })),
+        timeoutMs,
+        options.signal,
+      );
+      return normalizePluginToolResult(value);
+    }
+
+    const template = String(tool.command ?? '');
+    if (!template.trim()) return fail(AGENT_ERROR.TOOL_FAILED, '插件工具 ' + tool.name + ' 没有 command 模板。');
+    const cwd = resolvePluginCwd(options.workspace, tool.cwd);
+    if (!cwd.ok) return fail(AGENT_ERROR.TOOL_DENIED, '插件工具 ' + tool.name + '：' + cwd.message, { denied: true });
+    const command = substituteCommandArgs(template, args);
+    const env: NodeJS.ProcessEnv = { ELAINA_AGENT_ARGS: JSON.stringify(args ?? {}) };
+    const runner = options.runCommand ?? runPluginCommandDefault;
+    return await runner(command, { workspace: cwd.path, timeoutMs: tool.timeoutMs, env, signal: options.signal });
+  } catch (error) {
+    if (error instanceof PluginToolTimeoutError) {
+      return fail(AGENT_ERROR.TOOL_TIMEOUT, '插件工具 ' + tool.name + ' 执行超时（' + timeoutMs + 'ms）。');
+    }
+    if (error instanceof PluginToolAbortError) {
+      return fail(AGENT_ERROR.CANCELLED, '插件工具 ' + tool.name + ' 执行被取消。');
+    }
+    return fail(AGENT_ERROR.TOOL_FAILED, '插件工具 ' + tool.name + ' 执行失败：' + errorMessage(error), { retryable: true });
+  }
+}
+
+function declarationFor(manifest: PluginManifest, name: string): PluginToolDeclaration | null {
+  for (const item of normalizedToolDeclarations(manifest)) {
+    if (item.name === name) return item.declaration;
+  }
+  return null;
+}
+
+/** 插件入口导出形态：register(api) / tools 表 / apply(api) / default */
+function pickPluginApply(module: Record<string, unknown>, manifest: PluginManifest): ((api: PluginApi) => Promise<void>) | null {
+  const register = module.register;
+  if (typeof register === 'function') {
+    return async (api) => {
+      await (register as (pluginApi: PluginApi) => unknown)(api);
+    };
+  }
+  const table = module.tools;
+  if (table && typeof table === 'object' && !Array.isArray(table)) {
+    return async (api) => {
+      for (const [name, handler] of Object.entries(table as Record<string, unknown>)) {
+        if (typeof handler !== 'function') continue;
+        const declaration = declarationFor(manifest, name);
+        api.tools.register({
+          name,
+          description: declaration?.description || '插件 ' + manifest.id + ' 的工具 ' + name,
+          parameters: (declaration?.parameters as JsonSchema) ?? { type: 'object', properties: {} },
+          handler: handler as PluginToolHandler,
+        });
+      }
+    };
+  }
+  const apply = typeof module.apply === 'function' ? module.apply : typeof module.default === 'function' ? module.default : null;
+  if (apply) {
+    return async (api) => {
+      await (apply as (pluginApi: PluginApi) => unknown)(api);
+    };
+  }
+  return null;
 }
 
 /**
  * 扫描插件目录并逐个安装。设计文档第 8 节：
  * - 目录即插件（zip 解压即可）：<dir>/<id>/manifest.json + index.mjs|index.js；
- * - 失败隔离：单个插件 manifest 非法 / 入口抛错，只记录到 failed 并写 stderr；
- * - 注册面由 kernel/plugin.ts 的 installPlugin 收窄（只能 ctx.tools.register，工具名与权限必须预声明）。
+ * - 工具双通道：manifest command（shell）+ 入口 handler；
+ * - 失败隔离：单个插件 manifest 非法 / 入口抛错 / 工具名冲突，回滚该插件并写 stderr。
  */
 export async function loadPluginsFromDirectory(
   kernel: Kernel,
@@ -645,7 +1000,8 @@ export async function loadPluginsFromDirectory(
   options: PluginLoadOptions = {},
 ): Promise<PluginLoadResult> {
   const log = options.log ?? ((message: string) => process.stderr.write(redactSecrets(message, options.secret) + '\n'));
-  const result: PluginLoadResult = { directory, loaded: [], failed: [] };
+  const handlerTimeoutMs = options.handlerTimeoutMs ?? DEFAULT_PLUGIN_HANDLER_TIMEOUT_MS;
+  const result: PluginLoadResult = { directory, loaded: [], failed: [], tools: new Map(), manifests: [] };
 
   let entries;
   try {
@@ -660,19 +1016,83 @@ export async function loadPluginsFromDirectory(
   for (const entry of entries) {
     if (!entry.isDirectory() || entry.name.startsWith('.')) continue;
     const pluginDir = path.join(directory, entry.name);
+    const disposers: ToolDisposer[] = [];
+    const localHandlers = new Map<string, PluginToolHandler>();
     try {
       const manifest = await readPluginManifest(pluginDir);
       const entryFile = await findPluginEntry(pluginDir);
-      if (!entryFile) throw new Error('缺少入口文件（index.mjs / index.js / main.mjs / main.js）');
-      const module = (await import(pathToFileURL(entryFile).href)) as { apply?: unknown; default?: unknown };
-      const apply = typeof module.apply === 'function' ? module.apply : typeof module.default === 'function' ? module.default : null;
-      if (!apply) throw new Error('插件入口必须导出 apply(api) 或 default 函数');
-      const installed = await installPlugin(kernel, manifest, async (api) => {
-        await (apply as (pluginApi: unknown) => unknown)(api);
-      });
-      if (!installed.ok) throw installed.error ?? new Error('插件安装失败');
+      const commandDeclarations = manifestCommandDeclarations(manifest);
+
+      let apply: ((api: PluginApi) => Promise<void>) | null = null;
+      if (entryFile) {
+        const module = (await import(pathToFileURL(entryFile).href)) as Record<string, unknown>;
+        apply = pickPluginApply(module, manifest);
+        if (!apply && commandDeclarations.length === 0) {
+          throw new Error('插件入口必须导出 register(api) / apply(api) / tools 映射，或在 manifest.tools 里声明 command');
+        }
+      } else if (commandDeclarations.length === 0) {
+        throw new Error('缺少入口文件（index.mjs / index.js / main.mjs / main.js）');
+      }
+
+      const apiOptions: PluginApiOptions = {
+        onHandler: (name, handler) => {
+          localHandlers.set(name, handler);
+        },
+        onRegister: (dispose) => disposers.push(dispose),
+      };
+
+      if (apply) {
+        const installed = await installPlugin(kernel, manifest, async (api) => {
+          await apply!(api);
+        }, apiOptions);
+        if (!installed.ok) throw installed.error ?? new Error('插件安装失败');
+      }
+
+      // manifest command 通道：注册声明进 ToolsService，执行由宿主 run_command 语义负责
+      for (const declaration of commandDeclarations) {
+        const dispose = kernel.ctx.tools.register({
+          name: declaration.name,
+          description: declaration.description || '插件 ' + manifest.id + ' 的 shell 工具',
+          parameters: (declaration.parameters as JsonSchema) ?? { type: 'object', properties: {} },
+        });
+        disposers.push(dispose);
+      }
+
+      const declaredTimeouts = new Map<string, number | undefined>();
+      for (const item of normalizedToolDeclarations(manifest)) declaredTimeouts.set(item.name, item.declaration?.timeoutMs);
+
+      for (const [name, handler] of localHandlers) {
+        result.tools.set(name, {
+          name,
+          pluginId: manifest.id,
+          kind: 'handler',
+          handler,
+          timeoutMs: declaredTimeouts.get(name) ?? handlerTimeoutMs,
+        });
+      }
+      for (const declaration of commandDeclarations) {
+        result.tools.set(declaration.name, {
+          name: declaration.name,
+          pluginId: manifest.id,
+          kind: 'command',
+          command: declaration.command,
+          timeoutMs: declaration.timeoutMs,
+          cwd: declaration.cwd,
+        });
+      }
+
       result.loaded.push(manifest.id);
+      result.manifests.push(manifest);
     } catch (error) {
+      // 回滚该插件已注册的工具与 handler，保证失败隔离
+      for (const dispose of disposers.reverse()) {
+        try {
+          dispose();
+        } catch {
+          /* 回滚失败不影响其它插件 */
+        }
+      }
+      for (const name of localHandlers.keys()) result.tools.delete(name);
       result.failed.push(entry.name);
       log('[agent] 插件加载失败 ' + entry.name + '：' + errorMessage(error));
     }
@@ -831,6 +1251,7 @@ export async function createDefaultRun(
   baseConfig: AgentConfig | null,
   toolsModule: BuiltinToolModule | null,
   kernel: Kernel | null = null,
+  pluginTools: Map<string, PluginToolRuntime> | null = null,
 ): Promise<void> {
   const merged: AgentConfig = {
     enabled: true,
@@ -912,20 +1333,53 @@ export async function createDefaultRun(
       fail(AGENT_ERROR.TOOL_FAILED, '工具层未就绪，暂时无法执行 ' + call.name + '。', { needs_user: true });
   }
 
-  // 已注册但没有执行通道的工具（目前是第三方插件工具）给出明确结构化失败，而不是假装执行
-  if (executorHas) {
-    const runTool = executeTool;
-    const hasTool = executorHas;
-    executeTool = async (call: ToolCall): Promise<ToolResult> => {
-      if (!hasTool(call.name)) {
-        return fail(
-          AGENT_ERROR.TOOL_FAILED,
-          '工具 ' + call.name + ' 已注册但没有可用的执行通道（第三方插件执行在 MVP 之后接入）。请改用内置工具，或用 finish 说明缺口。',
-        );
+  // 执行映射：内置执行器优先 → 插件 handler → manifest command → 结构化失败
+  const builtinExecute = executeTool;
+  const pluginToolNames = new Set<string>(pluginTools ? [...pluginTools.keys()] : []);
+
+  // 插件 shell 命令复用 createToolExecutor 的 run_command 语义（超时/杀树/截断/日志），
+  // 只是额外注入 env（ELAINA_AGENT_ARGS）与命令自身的 cwd（= workspace 覆盖）。
+  const runPluginCommand: PluginCommandRunner = async (command, commandOptions) => {
+    if (!toolsModule || typeof toolsModule.createToolExecutor !== 'function') {
+      return fail(AGENT_ERROR.TOOL_FAILED, '工具层未就绪，无法执行插件命令。');
+    }
+    try {
+      const created = toolsModule.createToolExecutor({
+        workspace: commandOptions.workspace,
+        access: merged.access,
+        signal: context.signal,
+        runId: request.runId,
+        env: commandOptions.env,
+      }) as ExecutorLikeObject;
+      if (!created || typeof created.execute !== 'function') {
+        return fail(AGENT_ERROR.TOOL_FAILED, '执行器不支持插件命令通道。');
       }
-      return runTool(call);
-    };
-  }
+      const commandArgs: Record<string, unknown> = { command };
+      if (commandOptions.timeoutMs) commandArgs.timeoutMs = commandOptions.timeoutMs;
+      return await created.execute('run_command', commandArgs, { signal: context.signal });
+    } catch (error) {
+      return fail(AGENT_ERROR.TOOL_FAILED, '插件命令执行失败：' + errorMessage(error));
+    }
+  };
+
+  executeTool = async (call: ToolCall): Promise<ToolResult> => {
+    if (executorHas && executorHas(call.name)) return builtinExecute(call);
+    const plugin = pluginTools?.get(call.name);
+    if (plugin) {
+      return executePluginTool(plugin, call.args, {
+        workspace: merged.workspace,
+        signal: context.signal,
+        runCommand: runPluginCommand,
+      });
+    }
+    if (executorHas) {
+      return fail(
+        AGENT_ERROR.TOOL_FAILED,
+        '工具 ' + call.name + ' 已注册但没有可用的执行通道（插件需要 manifest command 或 handler）。请改用内置工具，或用 finish 说明缺口。',
+      );
+    }
+    return builtinExecute(call);
+  };
 
   // git 检查点（设计文档第 7 节）：写操作前 ensureBranch + commitBeforeWrite；
   // 任何 git 失败只写 stderr，绝不阻断任务。
@@ -964,9 +1418,11 @@ export async function createDefaultRun(
     });
   }
 
-  // 审批判定：full 不逐次确认；approval 档位下只有 safe 工具自动放行，未知工具按变更类处理
+  // 审批判定：full 不逐次确认；approval 档位下插件工具一律需要审批，
+  // 内置工具按 risk 判定（只有 safe 自动放行，未知工具按变更类处理）
   const needsApproval: NeedsApproval = (call) => {
     if (merged.access === 'full') return false;
+    if (pluginToolNames.has(call.name)) return true;
     if (executorRisk) return executorRisk(call) !== 'safe';
     return (riskByName.get(call.name) ?? 'mutating') !== 'safe';
   };
@@ -996,10 +1452,17 @@ export async function createDefaultRun(
         : () => null,
       beforeTool: async (call, step) => {
         if (!checkpointInstance) return;
+        const pluginRuntime = pluginTools?.get(call.name);
+        // 内置工具按 risk 判定；插件 handler 是进程内函数，是否写盘无法判定，交给审批；
+        // 插件 shell command 与内置命令一样按写操作处理。
+        const builtinKnown = executorHas ? executorHas(call.name) : true;
+        if (!builtinKnown && pluginRuntime?.kind !== 'command') return;
         const risk = executorRisk ? executorRisk(call) : (riskByName.get(call.name) ?? 'mutating');
         // 设计文档第 7 节：读操作不提交，只有写/高危命令才做检查点
         if (risk !== 'mutating' && risk !== 'destructive') return;
         try {
+          const state = await checkpointInstance.getState();
+          if (!state.isRepo) return; // 非仓库没有检查点可用，也不必刷 stderr
           const branch = await checkpointInstance.ensureBranch(request.runId);
           if (!branch.ok) {
             process.stderr.write(redactSecrets('[agent] git 检查点：' + branch.message, merged.model.apiKey) + '\n');
@@ -1075,7 +1538,7 @@ export async function main(): Promise<void> {
     approvalTimeoutMs: DEFAULT_LIMITS.approvalTimeoutMs,
     listTools: () => readyToolList(kernel, loaded.module, config?.search),
     searchTest: (request) => runSearchTest(request),
-    createRun: (request, context) => createDefaultRun(request, context, config, loaded.module, kernel),
+    createRun: (request, context) => createDefaultRun(request, context, config, loaded.module, kernel, plugins.tools),
   });
 
   const rl = createInterface({ input: process.stdin, crlfDelay: Infinity });

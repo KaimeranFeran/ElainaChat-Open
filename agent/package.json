@@ -4,7 +4,7 @@
   "type": "module",
   "version": "0.1.0",
   "scripts": {
-    "test": "node --test test/blocklist.test.ts test/protocol.test.ts test/config.test.ts test/runtime.test.ts test/tools.test.ts",
+    "test": "node --test test/blocklist.test.ts test/protocol.test.ts test/config.test.ts test/runtime.test.ts test/tools.test.ts test/plugin-exec.test.ts",
     "build": "node ../scripts/build-agent.mjs"
   },
   "dependencies": {
