@@ -51,6 +51,8 @@ export interface PluginManifest {
   tools: PluginToolEntry[];
   name?: string;
   description?: string;
+  /** 默认启用状态；缺省 true，写 false 表示装好即禁用（进程内启停状态不落盘） */
+  enabled?: boolean;
 }
 
 /** 插件 handler 的运行上下文：只给只读信息，不给宿主服务 */
@@ -121,6 +123,9 @@ export function validatePluginManifest(raw: unknown): Error | null {
   if (manifest.agentApiVersion !== AGENT_API_VERSION) {
     return new Error('manifest.agentApiVersion 必须是 ' + AGENT_API_VERSION + '（实际：' + String(manifest.agentApiVersion) + '）。');
   }
+  if (manifest.enabled !== undefined && typeof manifest.enabled !== 'boolean') {
+    return new Error('manifest.enabled 必须是布尔值。');
+  }
   if (!Array.isArray(manifest.permissions)) return new Error('manifest.permissions 必须是数组。');
   const allowed = new Set<string>(PLUGIN_PERMISSIONS);
   for (const permission of manifest.permissions) {
@@ -182,8 +187,8 @@ export function validatePluginManifest(raw: unknown): Error | null {
 export interface PluginApiOptions {
   /** 接收 handler；注册带 handler 的工具时未提供会报错（避免静默丢弃） */
   onHandler?: (name: string, handler: PluginToolHandler) => void;
-  /** 接收每次注册的释放函数：插件失败时宿主可整体回滚 */
-  onRegister?: (dispose: ToolDisposer) => void;
+  /** 接收每次注册的释放函数（带工具名，便于宿主按工具启停/回滚） */
+  onRegister?: (dispose: ToolDisposer, name?: string) => void;
 }
 
 /** 插件能看到的全部能力面。刻意只给 tools.register：插件拿不到宿主 ctx 的其它服务。 */
@@ -232,7 +237,7 @@ export function createPluginApi(ctx: Context, manifest: PluginManifest, options:
         const dispose = registry.register(toolSpec);
         try {
           if (handler) options.onHandler?.(spec.name, handler);
-          options.onRegister?.(dispose);
+          options.onRegister?.(dispose, spec.name);
         } catch (error) {
           dispose();
           throw error;

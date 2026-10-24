@@ -113,6 +113,12 @@ export interface AgentServerOptions {
   searchTest?: SearchTestRunner;
   /** 模型列表查询用的 fetch（测试注入，避免联网；生产默认 globalThis.fetch） */
   modelsFetch?: typeof fetch;
+  /** 插件目录 + 插件视图（ready / plugins_result 用） */
+  pluginInfo?: () => PluginsSnapshot;
+  /** 启停插件（进程序内状态）；返回是否成功 */
+  setPluginEnabled?: (id: string, enabled: boolean) => { ok: boolean; message: string };
+  /** 重新扫描插件目录 */
+  rescanPlugins?: () => Promise<{ ok: boolean; message: string }>;
 }
 
 /** search_test 请求（UI 设置页传入当前表单值，不落盘） */
@@ -403,7 +409,8 @@ export function createAgentServer(options: AgentServerOptions): AgentServer {
       return;
     }
     const tools = options.listTools ? options.listTools() : [{ name: FINISH_TOOL_NAME, description: '显式结束并汇报。' }];
-    writeMessage({ type: 'ready', agentVersion, agentApiVersion, tools });
+    const info = options.pluginInfo ? options.pluginInfo() : { pluginsDir: '', plugins: [] };
+    writeMessage({ type: 'ready', agentVersion, agentApiVersion, tools, pluginsDir: info.pluginsDir, plugins: info.plugins });
   };
 
   const handleRun = (message: AgentMessage): void => {
@@ -581,6 +588,68 @@ export function createAgentServer(options: AgentServerOptions): AgentServer {
     })();
   };
 
+  /** plugins_result 统一形状：requestId 可选（plugin_set_enabled 不强制带） */
+  const writePluginsResult = (requestId: string | undefined, ok: boolean, message: string): void => {
+    const info = options.pluginInfo ? options.pluginInfo() : { pluginsDir: '', plugins: [] };
+    const payload: AgentMessage = {
+      type: 'plugins_result',
+      pluginsDir: info.pluginsDir,
+      plugins: info.plugins,
+      ok,
+      message,
+    };
+    if (requestId) payload.requestId = requestId;
+    writeMessage(payload);
+  };
+
+  const handlePluginsList = (message: AgentMessage): void => {
+    const requestId = typeof message.requestId === 'string' ? message.requestId : '';
+    if (!requestId) {
+      writeError(AGENT_ERROR.PROTOCOL_INVALID, 'plugins_list 非法：需要 requestId。');
+      return;
+    }
+    writePluginsResult(requestId, true, '已获取插件列表。');
+  };
+
+  const handlePluginSetEnabled = (message: AgentMessage): void => {
+    const requestId = typeof message.requestId === 'string' ? message.requestId : '';
+    const id = typeof message.id === 'string' ? message.id.trim() : '';
+    const enabled = message.enabled;
+    if (!id || typeof enabled !== 'boolean') {
+      writeError(AGENT_ERROR.PROTOCOL_INVALID, 'plugin_set_enabled 非法：需要 id（非空）与 enabled（布尔）。');
+      return;
+    }
+    const toggle = options.setPluginEnabled;
+    if (!toggle) {
+      writePluginsResult(requestId || undefined, false, '插件管理未接线（宿主未注入 setPluginEnabled）。');
+      return;
+    }
+    let result: { ok: boolean; message: string };
+    try {
+      result = toggle(id, enabled);
+    } catch (error) {
+      result = { ok: false, message: '启停插件失败：' + errorMessage(error) };
+    }
+    writePluginsResult(requestId || undefined, Boolean(result.ok), String(result.message ?? ''));
+  };
+
+  const handlePluginsRescan = (message: AgentMessage): void => {
+    const requestId = typeof message.requestId === 'string' ? message.requestId : '';
+    const rescan = options.rescanPlugins;
+    if (!rescan) {
+      writePluginsResult(requestId || undefined, false, '插件管理未接线（宿主未注入 rescanPlugins）。');
+      return;
+    }
+    void (async () => {
+      try {
+        const result = await rescan();
+        writePluginsResult(requestId || undefined, Boolean(result.ok), String(result.message ?? ''));
+      } catch (error) {
+        writePluginsResult(requestId || undefined, false, '插件重扫失败：' + errorMessage(error));
+      }
+    })();
+  };
+
   const handleMessage = (message: AgentMessage): void => {
     if (disposed) return;
     if (!message || typeof message !== 'object' || typeof message.type !== 'string') {
@@ -605,6 +674,15 @@ export function createAgentServer(options: AgentServerOptions): AgentServer {
         return;
       case 'models_request':
         handleModelsRequest(message);
+        return;
+      case 'plugins_list':
+        handlePluginsList(message);
+        return;
+      case 'plugin_set_enabled':
+        handlePluginSetEnabled(message);
+        return;
+      case 'plugins_rescan':
+        handlePluginsRescan(message);
         return;
       default:
         writeError(AGENT_ERROR.PROTOCOL_INVALID, '未知消息类型：' + message.type);
@@ -988,116 +1066,389 @@ function pickPluginApply(module: Record<string, unknown>, manifest: PluginManife
   return null;
 }
 
-/**
- * 扫描插件目录并逐个安装。设计文档第 8 节：
- * - 目录即插件（zip 解压即可）：<dir>/<id>/manifest.json + index.mjs|index.js；
- * - 工具双通道：manifest command（shell）+ 入口 handler；
- * - 失败隔离：单个插件 manifest 非法 / 入口抛错 / 工具名冲突，回滚该插件并写 stderr。
- */
-export async function loadPluginsFromDirectory(
+interface PluginToolRecord {
+  runtime: PluginToolRuntime;
+  /** 注册声明（禁用后重新注册要用） */
+  spec: ToolSpec;
+  /** 启用状态下的注销函数；禁用时为 null */
+  dispose: (() => void) | null;
+}
+
+interface PluginRecord {
+  id: string;
+  manifest: PluginManifest;
+  enabled: boolean;
+  tools: PluginToolRecord[];
+}
+
+interface PluginFailure {
+  directory: string;
+  error: string;
+}
+
+/** 前端「插件管理」看到的单个插件 */
+export interface PluginView {
+  id: string;
+  version: string;
+  permissions: string[];
+  tools: string[];
+  enabled: boolean;
+  /** 加载失败的原因（失败的目录也会出现在列表里，id 用目录名） */
+  error?: string;
+}
+
+export interface PluginsSnapshot {
+  pluginsDir: string;
+  plugins: PluginView[];
+}
+
+type LoadedPluginRecord = { ok: true; record: PluginRecord } | { ok: false; error: string };
+
+/** 加载单个插件目录：校验/注册/失败回滚都在这里，成功时返回可启停的记录 */
+async function loadPluginRecord(
   kernel: Kernel,
-  directory: string,
-  options: PluginLoadOptions = {},
-): Promise<PluginLoadResult> {
-  const log = options.log ?? ((message: string) => process.stderr.write(redactSecrets(message, options.secret) + '\n'));
-  const handlerTimeoutMs = options.handlerTimeoutMs ?? DEFAULT_PLUGIN_HANDLER_TIMEOUT_MS;
-  const result: PluginLoadResult = { directory, loaded: [], failed: [], tools: new Map(), manifests: [] };
-
-  let entries;
+  pluginDir: string,
+  options: { log: (message: string) => void; handlerTimeoutMs: number },
+): Promise<LoadedPluginRecord> {
+  const disposers: ToolDisposer[] = [];
+  const disposeByName = new Map<string, ToolDisposer>();
+  const localHandlers = new Map<string, PluginToolHandler>();
   try {
-    entries = await readdir(directory, { withFileTypes: true });
-  } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code;
-    // 没装插件是正常状态，不是错误
-    if (code !== 'ENOENT') log('[agent] 插件目录不可读：' + directory + '（' + errorMessage(error) + '）');
-    return result;
-  }
+    const manifest = await readPluginManifest(pluginDir);
+    const entryFile = await findPluginEntry(pluginDir);
+    const commandDeclarations = manifestCommandDeclarations(manifest);
 
-  for (const entry of entries) {
-    if (!entry.isDirectory() || entry.name.startsWith('.')) continue;
-    const pluginDir = path.join(directory, entry.name);
-    const disposers: ToolDisposer[] = [];
-    const localHandlers = new Map<string, PluginToolHandler>();
-    try {
-      const manifest = await readPluginManifest(pluginDir);
-      const entryFile = await findPluginEntry(pluginDir);
-      const commandDeclarations = manifestCommandDeclarations(manifest);
-
-      let apply: ((api: PluginApi) => Promise<void>) | null = null;
-      if (entryFile) {
-        const module = (await import(pathToFileURL(entryFile).href)) as Record<string, unknown>;
-        apply = pickPluginApply(module, manifest);
-        if (!apply && commandDeclarations.length === 0) {
-          throw new Error('插件入口必须导出 register(api) / apply(api) / tools 映射，或在 manifest.tools 里声明 command');
-        }
-      } else if (commandDeclarations.length === 0) {
-        throw new Error('缺少入口文件（index.mjs / index.js / main.mjs / main.js）');
+    let apply: ((api: PluginApi) => Promise<void>) | null = null;
+    if (entryFile) {
+      const module = (await import(pathToFileURL(entryFile).href)) as Record<string, unknown>;
+      apply = pickPluginApply(module, manifest);
+      if (!apply && commandDeclarations.length === 0) {
+        throw new Error('插件入口必须导出 register(api) / apply(api) / tools 映射，或在 manifest.tools 里声明 command');
       }
+    } else if (commandDeclarations.length === 0) {
+      throw new Error('缺少入口文件（index.mjs / index.js / main.mjs / main.js）');
+    }
 
-      const apiOptions: PluginApiOptions = {
+    if (apply) {
+      const installed = await installPlugin(kernel, manifest, async (api) => {
+        await apply!(api);
+      }, {
         onHandler: (name, handler) => {
           localHandlers.set(name, handler);
         },
-        onRegister: (dispose) => disposers.push(dispose),
-      };
+        onRegister: (dispose, name) => {
+          disposers.push(dispose);
+          if (name) disposeByName.set(name, dispose);
+        },
+      });
+      if (!installed.ok) throw installed.error ?? new Error('插件安装失败');
+    }
 
-      if (apply) {
-        const installed = await installPlugin(kernel, manifest, async (api) => {
-          await apply!(api);
-        }, apiOptions);
-        if (!installed.ok) throw installed.error ?? new Error('插件安装失败');
-      }
+    const declaredTimeouts = new Map<string, number | undefined>();
+    for (const item of normalizedToolDeclarations(manifest)) declaredTimeouts.set(item.name, item.declaration?.timeoutMs);
 
-      // manifest command 通道：注册声明进 ToolsService，执行由宿主 run_command 语义负责
-      for (const declaration of commandDeclarations) {
-        const dispose = kernel.ctx.tools.register({
-          name: declaration.name,
-          description: declaration.description || '插件 ' + manifest.id + ' 的 shell 工具',
-          parameters: (declaration.parameters as JsonSchema) ?? { type: 'object', properties: {} },
-        });
-        disposers.push(dispose);
-      }
-
-      const declaredTimeouts = new Map<string, number | undefined>();
-      for (const item of normalizedToolDeclarations(manifest)) declaredTimeouts.set(item.name, item.declaration?.timeoutMs);
-
-      for (const [name, handler] of localHandlers) {
-        result.tools.set(name, {
+    const tools: PluginToolRecord[] = [];
+    for (const [name, handler] of localHandlers) {
+      const spec = kernel.ctx.tools.get(name);
+      if (!spec) throw new Error('插件工具注册后找不到声明：' + name);
+      tools.push({
+        runtime: {
           name,
           pluginId: manifest.id,
           kind: 'handler',
           handler,
-          timeoutMs: declaredTimeouts.get(name) ?? handlerTimeoutMs,
-        });
-      }
-      for (const declaration of commandDeclarations) {
-        result.tools.set(declaration.name, {
+          timeoutMs: declaredTimeouts.get(name) ?? options.handlerTimeoutMs,
+        },
+        spec,
+        dispose: disposeByName.get(name) ?? null,
+      });
+    }
+
+    for (const declaration of commandDeclarations) {
+      const spec: ToolSpec = {
+        name: declaration.name,
+        description: declaration.description || '插件 ' + manifest.id + ' 的 shell 工具',
+        parameters: (declaration.parameters as JsonSchema) ?? { type: 'object', properties: {} },
+      };
+      const dispose = kernel.ctx.tools.register(spec);
+      disposers.push(dispose);
+      tools.push({
+        runtime: {
           name: declaration.name,
           pluginId: manifest.id,
           kind: 'command',
           command: declaration.command,
           timeoutMs: declaration.timeoutMs,
           cwd: declaration.cwd,
-        });
-      }
+        },
+        spec,
+        dispose,
+      });
+    }
 
-      result.loaded.push(manifest.id);
-      result.manifests.push(manifest);
+    const record: PluginRecord = {
+      id: manifest.id,
+      manifest,
+      // manifest.enabled === false 表示默认禁用
+      enabled: manifest.enabled !== false,
+      tools,
+    };
+    if (!record.enabled) {
+      for (const tool of tools) {
+        try {
+          tool.dispose?.();
+        } catch {
+          /* 注销失败不影响记录本身 */
+        }
+        tool.dispose = null;
+      }
+    }
+    return { ok: true, record };
+  } catch (error) {
+    // 回滚该插件已注册的工具，保证失败隔离
+    for (const dispose of disposers.reverse()) {
+      try {
+        dispose();
+      } catch {
+        /* 回滚失败不影响其它插件 */
+      }
+    }
+    return { ok: false, error: errorMessage(error) };
+  }
+}
+
+/**
+ * 插件管理器：目录扫描 + 进程内启停 + 执行查找。
+ *
+ * - 启停只影响 ToolsService 注册与模型工具列表；handler 仍在内存里，重新启用即恢复；
+ * - 状态不落盘：重启后回到 manifest 默认（enabled 缺省 true，可写 false）；
+ * - rescan 全量重扫（新插件加载、已删插件消失），单个失败只进列表的 error，不阻断其它插件。
+ */
+export class PluginManager {
+  readonly directory: string;
+  #kernel: Kernel;
+  #log: (message: string) => void;
+  #handlerTimeoutMs: number;
+  #records: PluginRecord[] = [];
+  #failures: PluginFailure[] = [];
+  #enabledOverrides = new Map<string, boolean>();
+
+  constructor(options: {
+    kernel: Kernel;
+    directory: string;
+    log?: (message: string) => void;
+    secret?: string;
+    handlerTimeoutMs?: number;
+  }) {
+    this.#kernel = options.kernel;
+    this.directory = path.resolve(options.directory);
+    this.#log = options.log ?? ((message: string) => process.stderr.write(redactSecrets(message, options.secret) + '\n'));
+    this.#handlerTimeoutMs = options.handlerTimeoutMs ?? DEFAULT_PLUGIN_HANDLER_TIMEOUT_MS;
+  }
+
+  get loadedCount(): number {
+    return this.#records.length;
+  }
+
+  get failedCount(): number {
+    return this.#failures.length;
+  }
+
+  /** 全量重扫：先卸下所有已注册工具，再按目录重新加载；进程内启停偏好会覆盖 manifest 默认 */
+  async scan(): Promise<void> {
+    for (const record of this.#records) this.#unregister(record);
+    this.#records = [];
+    this.#failures = [];
+
+    let entries;
+    try {
+      entries = await readdir(this.directory, { withFileTypes: true });
     } catch (error) {
-      // 回滚该插件已注册的工具与 handler，保证失败隔离
-      for (const dispose of disposers.reverse()) {
+      const code = (error as NodeJS.ErrnoException).code;
+      // 没装插件是正常状态，不是错误
+      if (code !== 'ENOENT') this.#log('[agent] 插件目录不可读：' + this.directory + '（' + errorMessage(error) + '）');
+      return;
+    }
+
+    const directories = entries
+      .filter((entry) => entry.isDirectory() && !entry.name.startsWith('.'))
+      .sort((a, b) => a.name.localeCompare(b.name));
+
+    for (const entry of directories) {
+      const loaded = await loadPluginRecord(this.#kernel, path.join(this.directory, entry.name), {
+        log: this.#log,
+        handlerTimeoutMs: this.#handlerTimeoutMs,
+      });
+      if (!loaded.ok) {
+        this.#failures.push({ directory: entry.name, error: loaded.error });
+        this.#log('[agent] 插件加载失败 ' + entry.name + '：' + loaded.error);
+        continue;
+      }
+      const record = loaded.record;
+      const override = this.#enabledOverrides.get(record.id);
+      if (override !== undefined && override !== record.enabled) this.#applyEnabled(record, override);
+      this.#records.push(record);
+    }
+  }
+
+  list(): PluginView[] {
+    const plugins: PluginView[] = [];
+    for (const record of this.#records) {
+      plugins.push({
+        id: record.id,
+        version: record.manifest.version,
+        permissions: [...record.manifest.permissions],
+        tools: record.tools.map((tool) => tool.runtime.name),
+        enabled: record.enabled,
+      });
+    }
+    for (const failure of this.#failures) {
+      plugins.push({
+        id: failure.directory,
+        version: '',
+        permissions: [],
+        tools: [],
+        enabled: false,
+        error: failure.error,
+      });
+    }
+    // 稳定排序：UI 列表不会因加载顺序抖动
+    plugins.sort((a, b) => a.id.localeCompare(b.id));
+    return plugins;
+  }
+
+  snapshot(): PluginsSnapshot {
+    return { pluginsDir: this.directory, plugins: this.list() };
+  }
+
+  setEnabled(id: string, enabled: boolean): { ok: boolean; message: string } {
+    const record = this.#records.find((item) => item.id === id);
+    if (!record) return { ok: false, message: '插件不存在：' + id };
+    this.#enabledOverrides.set(id, enabled);
+    if (record.enabled === enabled) {
+      return { ok: true, message: '插件 ' + id + ' 已经是' + (enabled ? '启用' : '禁用') + '状态。' };
+    }
+    const applied = this.#applyEnabled(record, enabled);
+    if (!applied) return { ok: false, message: '插件 ' + id + ' 的工具重新注册失败（可能与其他工具重名），已保持禁用。' };
+    return { ok: true, message: '插件 ' + id + ' 已' + (enabled ? '启用' : '禁用') + '。' };
+  }
+
+  /** 查找插件工具（含禁用插件），供执行映射判断是否 TOOL_DENIED */
+  toolRuntime(name: string): { runtime: PluginToolRuntime; enabled: boolean; pluginId: string } | undefined {
+    for (const record of this.#records) {
+      for (const tool of record.tools) {
+        if (tool.runtime.name === name) return { runtime: tool.runtime, enabled: record.enabled, pluginId: record.id };
+      }
+    }
+    return undefined;
+  }
+
+  /** 只有启用中的插件工具才需要审批；禁用工具直接 TOOL_DENIED，不弹审批 */
+  hasActiveTool(name: string): boolean {
+    return Boolean(this.toolRuntime(name)?.enabled);
+  }
+
+  async executeTool(name: string, args: Record<string, unknown>, options: PluginToolRunOptions): Promise<ToolResult> {
+    const found = this.toolRuntime(name);
+    if (!found) return fail(AGENT_ERROR.TOOL_FAILED, '未知插件工具：' + name + '。');
+    if (!found.enabled) {
+      return fail(
+        AGENT_ERROR.TOOL_DENIED,
+        '插件 ' + found.pluginId + ' 已禁用，工具 ' + name + ' 不可用。请让用户在「设置 → Agent → 插件」里启用后重试。',
+        { denied: true },
+      );
+    }
+    return executePluginTool(found.runtime, args, options);
+  }
+
+  /** 兼容 loadPluginsFromDirectory 的只读视图 */
+  loadedIds(): string[] {
+    return this.#records.map((record) => record.id);
+  }
+
+  failedDirs(): string[] {
+    return this.#failures.map((failure) => failure.directory);
+  }
+
+  allTools(): Map<string, PluginToolRuntime> {
+    const tools = new Map<string, PluginToolRuntime>();
+    for (const record of this.#records) for (const tool of record.tools) tools.set(tool.runtime.name, tool.runtime);
+    return tools;
+  }
+
+  manifests(): PluginManifest[] {
+    return this.#records.map((record) => record.manifest);
+  }
+
+  /** 进程退出/测试清理：卸下所有插件工具（不影响插件目录） */
+  dispose(): void {
+    for (const record of this.#records) this.#unregister(record);
+    this.#records = [];
+    this.#failures = [];
+  }
+
+  #unregister(record: PluginRecord): void {
+    for (const tool of record.tools) {
+      try {
+        tool.dispose?.();
+      } catch {
+        /* 注销失败不影响其它工具 */
+      }
+      tool.dispose = null;
+    }
+    record.enabled = false;
+  }
+
+  #applyEnabled(record: PluginRecord, enabled: boolean): boolean {
+    if (!enabled) {
+      this.#unregister(record);
+      return true;
+    }
+    const registered: Array<() => void> = [];
+    try {
+      for (const tool of record.tools) {
+        // 可能已经注册（例如从 manifest enabled=false 切到启用）——先尽力注销再注册
+        try {
+          tool.dispose?.();
+        } catch {
+          /* 忽略 */
+        }
+        tool.dispose = this.#kernel.ctx.tools.register(tool.spec);
+        registered.push(tool.dispose);
+      }
+      record.enabled = true;
+      return true;
+    } catch (error) {
+      for (const dispose of registered.reverse()) {
         try {
           dispose();
         } catch {
-          /* 回滚失败不影响其它插件 */
+          /* 忽略 */
         }
       }
-      for (const name of localHandlers.keys()) result.tools.delete(name);
-      result.failed.push(entry.name);
-      log('[agent] 插件加载失败 ' + entry.name + '：' + errorMessage(error));
+      for (const tool of record.tools) tool.dispose = null;
+      record.enabled = false;
+      this.#log('[agent] 插件 ' + record.id + ' 启用失败：' + errorMessage(error));
+      return false;
     }
   }
-  return result;
+}
+
+/** 兼容旧接口（P2/P3 测试与调用方）：一次性扫描，返回已加载/失败清单与全部插件工具 */
+export async function loadPluginsFromDirectory(
+  kernel: Kernel,
+  directory: string,
+  options: PluginLoadOptions = {},
+): Promise<PluginLoadResult> {
+  const manager = new PluginManager({ kernel, directory, ...options });
+  await manager.scan();
+  return {
+    directory: manager.directory,
+    loaded: manager.loadedIds(),
+    failed: manager.failedDirs(),
+    tools: manager.allTools(),
+    manifests: manager.manifests(),
+  };
 }
 
 /**
@@ -1251,7 +1602,7 @@ export async function createDefaultRun(
   baseConfig: AgentConfig | null,
   toolsModule: BuiltinToolModule | null,
   kernel: Kernel | null = null,
-  pluginTools: Map<string, PluginToolRuntime> | null = null,
+  pluginManager: PluginManager | null = null,
 ): Promise<void> {
   const merged: AgentConfig = {
     enabled: true,
@@ -1333,9 +1684,8 @@ export async function createDefaultRun(
       fail(AGENT_ERROR.TOOL_FAILED, '工具层未就绪，暂时无法执行 ' + call.name + '。', { needs_user: true });
   }
 
-  // 执行映射：内置执行器优先 → 插件 handler → manifest command → 结构化失败
+  // 执行映射：内置执行器优先 → 插件（含禁用判定）→ 结构化失败
   const builtinExecute = executeTool;
-  const pluginToolNames = new Set<string>(pluginTools ? [...pluginTools.keys()] : []);
 
   // 插件 shell 命令复用 createToolExecutor 的 run_command 语义（超时/杀树/截断/日志），
   // 只是额外注入 env（ELAINA_AGENT_ARGS）与命令自身的 cwd（= workspace 覆盖）。
@@ -1364,9 +1714,9 @@ export async function createDefaultRun(
 
   executeTool = async (call: ToolCall): Promise<ToolResult> => {
     if (executorHas && executorHas(call.name)) return builtinExecute(call);
-    const plugin = pluginTools?.get(call.name);
-    if (plugin) {
-      return executePluginTool(plugin, call.args, {
+    if (pluginManager && pluginManager.toolRuntime(call.name)) {
+      // 禁用插件的工具在这里直接 TOOL_DENIED（不执行、不弹审批）
+      return pluginManager.executeTool(call.name, call.args, {
         workspace: merged.workspace,
         signal: context.signal,
         runCommand: runPluginCommand,
@@ -1422,7 +1772,7 @@ export async function createDefaultRun(
   // 内置工具按 risk 判定（只有 safe 自动放行，未知工具按变更类处理）
   const needsApproval: NeedsApproval = (call) => {
     if (merged.access === 'full') return false;
-    if (pluginToolNames.has(call.name)) return true;
+    if (pluginManager?.hasActiveTool(call.name)) return true;
     if (executorRisk) return executorRisk(call) !== 'safe';
     return (riskByName.get(call.name) ?? 'mutating') !== 'safe';
   };
@@ -1452,11 +1802,11 @@ export async function createDefaultRun(
         : () => null,
       beforeTool: async (call, step) => {
         if (!checkpointInstance) return;
-        const pluginRuntime = pluginTools?.get(call.name);
+        const pluginRuntime = pluginManager?.toolRuntime(call.name);
         // 内置工具按 risk 判定；插件 handler 是进程内函数，是否写盘无法判定，交给审批；
         // 插件 shell command 与内置命令一样按写操作处理。
         const builtinKnown = executorHas ? executorHas(call.name) : true;
-        if (!builtinKnown && pluginRuntime?.kind !== 'command') return;
+        if (!builtinKnown && pluginRuntime?.runtime.kind !== 'command') return;
         const risk = executorRisk ? executorRisk(call) : (riskByName.get(call.name) ?? 'mutating');
         // 设计文档第 7 节：读操作不提交，只有写/高危命令才做检查点
         if (risk !== 'mutating' && risk !== 'destructive') return;
@@ -1515,16 +1865,20 @@ export async function main(): Promise<void> {
     process.stderr.write(redactSecrets('[agent] 内置工具注册失败：' + (builtinRegistration.error ?? 'unknown'), secret) + '\n');
   }
 
-  // 2. 第三方插件：目录即插件，单个失败只写 stderr，不影响内置工具
+  // 2. 第三方插件：目录即插件，单个失败只写 stderr，不影响内置工具；
+  //    PluginManager 持有进程内启停状态（不落盘），前端可 list/setEnabled/rescan。
   const pluginDirectory = resolvePluginDirectory();
-  const plugins = await loadPluginsFromDirectory(kernel, pluginDirectory, { secret });
-  if (plugins.loaded.length > 0 || plugins.failed.length > 0) {
+  const pluginManager = new PluginManager({ kernel, directory: pluginDirectory, secret });
+  await pluginManager.scan();
+  const loadedPlugins = pluginManager.loadedIds();
+  const failedPlugins = pluginManager.failedDirs();
+  if (loadedPlugins.length > 0 || failedPlugins.length > 0) {
     process.stderr.write(
       redactSecrets(
-        '[agent] 插件目录 ' + pluginDirectory + '：加载 ' + plugins.loaded.length + ' 个' +
-          (plugins.loaded.length ? '（' + plugins.loaded.join(', ') + '）' : '') +
-          '，失败 ' + plugins.failed.length + ' 个' +
-          (plugins.failed.length ? '（' + plugins.failed.join(', ') + '）' : ''),
+        '[agent] 插件目录 ' + pluginManager.directory + '：加载 ' + loadedPlugins.length + ' 个' +
+          (loadedPlugins.length ? '（' + loadedPlugins.join(', ') + '）' : '') +
+          '，失败 ' + failedPlugins.length + ' 个' +
+          (failedPlugins.length ? '（' + failedPlugins.join(', ') + '）' : ''),
         secret,
       ) + '\n',
     );
@@ -1538,7 +1892,16 @@ export async function main(): Promise<void> {
     approvalTimeoutMs: DEFAULT_LIMITS.approvalTimeoutMs,
     listTools: () => readyToolList(kernel, loaded.module, config?.search),
     searchTest: (request) => runSearchTest(request),
-    createRun: (request, context) => createDefaultRun(request, context, config, loaded.module, kernel, plugins.tools),
+    pluginInfo: () => pluginManager.snapshot(),
+    setPluginEnabled: (id, enabled) => pluginManager.setEnabled(id, enabled),
+    rescanPlugins: async () => {
+      await pluginManager.scan();
+      return {
+        ok: true,
+        message: '已重新扫描插件目录：加载 ' + pluginManager.loadedCount + ' 个，失败 ' + pluginManager.failedCount + ' 个。',
+      };
+    },
+    createRun: (request, context) => createDefaultRun(request, context, config, loaded.module, kernel, pluginManager),
   });
 
   const rl = createInterface({ input: process.stdin, crlfDelay: Infinity });
@@ -1547,6 +1910,7 @@ export async function main(): Promise<void> {
   });
   rl.on('close', () => {
     server.dispose();
+    pluginManager.dispose();
     void kernel.dispose();
   });
 }
