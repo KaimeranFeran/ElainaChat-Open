@@ -64,6 +64,10 @@ const MAX_TIMEOUT_MS = 10 * 60 * 1000;
 const MIN_TIMEOUT_MS = 100;
 /** 防止一条命令占满内存；超过后仍继续排空管道，只是不再收集 */
 const MAX_COLLECT_BYTES = 32 * 1024 * 1024;
+/** 子进程已 exit 但管道仍被孙进程占着时，等这么久后销毁管道强制收尾 */
+const CLOSE_GRACE_MS = 500;
+/** 超时/取消杀掉进程树后，等这么久还不 close 就强制收尾（防止永远挂住） */
+const KILL_GRACE_MS = 1500;
 
 let cachedPwsh: boolean | null = null;
 let cachedWindowsPowerShell: boolean | null = null;
@@ -140,12 +144,43 @@ export function decodeOutput(buffer: Buffer): string {
   return utf8;
 }
 
+/**
+ * 杀整棵进程树。
+ *
+ * 两个关键点（都是卡死/漏杀的真因）：
+ * 1. 用异步 spawn 而不是 spawnSync —— 超时/取消回调里同步等 taskkill 会阻塞事件循环，
+ *    期间连取消事件都无法处理；
+ * 2. **不要**在 taskkill 之前直接 child.kill：父 shell 一旦先退出，taskkill /T 就找不到
+ *    它的子进程，孙进程（node 等）会漏杀并继续占着 stdout/stderr 与工作目录。
+ *    所以先 taskkill /T /F，800ms 后仍未退出再退化直接杀父进程兜底。
+ */
 function killProcessTree(pid: number | undefined, child: import('node:child_process').ChildProcess): void {
   if (pid && process.platform === 'win32') {
     try {
-      spawnSync('taskkill.exe', ['/pid', String(pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true, timeout: 10000 });
+      const killer = spawn('taskkill.exe', ['/pid', String(pid), '/T', '/F'], {
+        stdio: 'ignore',
+        windowsHide: true,
+      });
+      killer.on('error', () => {
+        // taskkill 本身起不来：退回直接杀父进程
+        try {
+          child.kill('SIGKILL');
+        } catch {
+          /* 进程可能已退出 */
+        }
+      });
+      killer.unref?.();
+      const fallback = setTimeout(() => {
+        try {
+          child.kill('SIGKILL');
+        } catch {
+          /* 进程可能已退出 */
+        }
+      }, 800);
+      fallback.unref?.();
+      return;
     } catch {
-      /* 进程可能已退出 */
+      /* 落到下面的直接 kill */
     }
   }
   try {
@@ -153,15 +188,6 @@ function killProcessTree(pid: number | undefined, child: import('node:child_proc
   } catch {
     /* 进程可能已退出 */
   }
-  // 万一 taskkill 也没能回收（例如权限问题），2 秒后再补一刀
-  const guard = setTimeout(() => {
-    try {
-      child.kill('SIGKILL');
-    } catch {
-      /* ignore */
-    }
-  }, 2000);
-  guard.unref?.();
 }
 
 function clampTimeout(value: number | undefined, limits: Partial<AgentLimits> | undefined): number {
@@ -184,6 +210,20 @@ interface SpawnOutcome {
 async function spawnAndCollect(command: string, options: ExecCommandOptions, timeoutMs: number): Promise<SpawnOutcome> {
   const shell = resolveShell(options.shell);
   const invocation = buildInvocation(command, shell);
+  const startedAt = Date.now();
+
+  const emptyOutcome = (aborted: boolean): SpawnOutcome => ({
+    exitCode: null,
+    stdoutBuffer: Buffer.alloc(0),
+    stderrBuffer: Buffer.alloc(0),
+    timedOut: false,
+    aborted,
+    shell,
+  });
+
+  // 已经取消：连 shell 都不要拉起
+  if (options.signal?.aborted) return emptyOutcome(true);
+
   const child = spawn(invocation.file, invocation.args, {
     cwd: options.workspace,
     env: { ...process.env, ...(options.env ?? {}) },
@@ -214,53 +254,106 @@ async function spawnAndCollect(command: string, options: ExecCommandOptions, tim
   let timedOut = false;
   let aborted = false;
   let settled = false;
+  let exitCode: number | null = null;
+  let hardTimer: ReturnType<typeof setTimeout> | null = null;
+  let closeGraceTimer: ReturnType<typeof setTimeout> | null = null;
+  let killGraceTimer: ReturnType<typeof setTimeout> | null = null;
 
-  const timer = setTimeout(() => {
+  let finish: (outcome: SpawnOutcome) => void = () => {};
+  const resultPromise = new Promise<SpawnOutcome>((resolve) => {
+    finish = resolve;
+  });
+
+  const destroyStreams = (): void => {
+    try {
+      child.stdout?.destroy();
+    } catch {
+      /* 已销毁 */
+    }
+    try {
+      child.stderr?.destroy();
+    } catch {
+      /* 已销毁 */
+    }
+  };
+
+  const settle = (code: number | null, spawnError?: Error): void => {
     if (settled) return;
-    timedOut = true;
-    killProcessTree(child.pid, child);
-  }, timeoutMs);
-  timer.unref?.();
+    settled = true;
+    if (hardTimer) clearTimeout(hardTimer);
+    if (closeGraceTimer) clearTimeout(closeGraceTimer);
+    if (killGraceTimer) clearTimeout(killGraceTimer);
+    if (options.signal) options.signal.removeEventListener('abort', onAbort);
+    finish({
+      exitCode: code,
+      spawnError,
+      stdoutBuffer: Buffer.concat(stdoutChunks),
+      stderrBuffer: Buffer.concat(stderrChunks),
+      timedOut,
+      aborted,
+      shell,
+    });
+  };
 
-  const onAbort = () => {
+  /**
+   * 超时/取消：杀进程树，并且**必须**在宽限期后强制收尾。
+   * 根因：命令可能拉起继承 stdout/stderr 的孙进程（Start-Process / detached），
+   * 父 shell 先退出后管道仍被占着，Node 的 'close' 永远不来；此时 taskkill 打的是
+   * 已退出的父 PID，杀不掉孙进程——旧实现就这样永久挂住。
+   */
+  const killAndForceSettle = (): void => {
+    killProcessTree(child.pid, child);
+    killGraceTimer = setTimeout(() => {
+      destroyStreams();
+      settle(exitCode);
+    }, KILL_GRACE_MS);
+  };
+
+  const onAbort = (): void => {
     if (settled) return;
     aborted = true;
-    killProcessTree(child.pid, child);
+    killAndForceSettle();
   };
+
+  const onTimeout = (): void => {
+    if (settled) return;
+    timedOut = true;
+    killAndForceSettle();
+  };
+
+  child.once('error', (error) => settle(null, error as Error));
+  child.once('exit', (code) => {
+    if (settled) return;
+    exitCode = typeof code === 'number' ? code : null;
+    // 已退出但管道还被孙进程占着（Start-Process/detached）：短暂等 'close'，拿不到就拆管道收尾
+    if (!closeGraceTimer) {
+      closeGraceTimer = setTimeout(() => {
+        destroyStreams();
+        settle(exitCode);
+      }, CLOSE_GRACE_MS);
+    }
+  });
+  child.once('close', (code) => {
+    if (exitCode === null) exitCode = typeof code === 'number' ? code : null;
+    settle(exitCode);
+  });
+
+  // 硬超时从「开始执行」计时（spawn 之前记 startedAt，shell 启动慢也计入），
+  // 且与 stdout/stderr 是否有输出无关：零输出/卡住照样按时超时。
+  hardTimer = setTimeout(onTimeout, Math.max(1, timeoutMs - (Date.now() - startedAt)));
   if (options.signal) {
     if (options.signal.aborted) onAbort();
     else options.signal.addEventListener('abort', onAbort, { once: true });
   }
 
-  const outcome = await new Promise<{ exitCode: number | null; spawnError?: Error }>((resolve) => {
-    child.once('error', (error) => {
-      if (settled) return;
-      settled = true;
-      resolve({ exitCode: null, spawnError: error as Error });
-    });
-    child.once('close', (code) => {
-      if (settled) return;
-      settled = true;
-      resolve({ exitCode: typeof code === 'number' ? code : null });
-    });
-  });
-
-  clearTimeout(timer);
-  if (options.signal) options.signal.removeEventListener('abort', onAbort);
-
-  return {
-    ...outcome,
-    stdoutBuffer: Buffer.concat(stdoutChunks),
-    stderrBuffer: Buffer.concat(stderrChunks),
-    timedOut,
-    aborted,
-    shell,
-  };
+  return resultPromise;
 }
 
 /** 执行一条命令并返回完整结果（已截断的模型视图 + 完整日志路径） */
 export async function execCommand(command: string, options: ExecCommandOptions): Promise<CommandExecution> {
   const text = String(command ?? '');
+  // 超时在「开始执行前」就生效：未传时用默认 60s（DEFAULT_LIMITS.shellTimeoutMs），
+  // 显式传入则夹在 100ms ~ 10min；计时从 spawn 之前开始，shell 启动慢也计入。
   const timeoutMs = clampTimeout(options.timeoutMs, options.limits);
   const limits = resolveOutputLimits(options.limits);
 

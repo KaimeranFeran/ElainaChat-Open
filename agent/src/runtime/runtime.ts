@@ -71,8 +71,13 @@ export type RequestApproval = (request: ApprovalRequest, signal?: AbortSignal) =
 /** 该调用是否需要审批（宿主按工具 risk 判定；未注入时按档位保守处理） */
 export type NeedsApproval = (call: ToolCall, access: AgentAccess) => boolean | Promise<boolean>;
 
+/** 工具执行上下文：signal 在 run 被 cancel / 超时时 abort，shell 工具据此 taskkill 进程树 */
+export interface ToolExecuteContext {
+  signal?: AbortSignal;
+}
+
 /** 执行一次工具调用；抛错由 runtime 兜成 TOOL_FAILED，不会炸掉 run */
-export type ToolExecutor = (call: ToolCall) => Promise<ToolResult>;
+export type ToolExecutor = (call: ToolCall, context: ToolExecuteContext) => Promise<ToolResult>;
 
 /** token 用量：reasoning 只计数，不落正文（设计文档第 10 节） */
 export interface UsageTokens {
@@ -537,7 +542,7 @@ export async function runAgent(input: RunAgentInput | string, options: RunAgentO
 
       let result: ToolResult;
       try {
-        result = await options.executeTool(call);
+        result = await options.executeTool(call, { signal: options.signal });
       } catch (error) {
         result = fail(AGENT_ERROR.TOOL_FAILED, '工具执行抛错：' + errorMessage(error));
       }

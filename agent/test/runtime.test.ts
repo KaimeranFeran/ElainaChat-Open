@@ -440,6 +440,40 @@ test('cancel（AbortSignal）→ cancelled 事件，不再处理后续 turn', as
   assert.equal(result.code, AGENT_ERROR.CANCELLED);
 });
 
+test('cancel 会通过 executeTool 的 context 传 signal，工具可据此杀子进程', async () => {
+  const controller = new AbortController();
+  const fake = makeAdapter([{ calls: [{ name: 'slow_tool', args: {} }] }]);
+  let sawAbortedSignal = false;
+
+  const executor = async (_call: ToolCall, context?: { signal?: AbortSignal }): Promise<ToolResult> => {
+    await new Promise<void>((resolve) => {
+      if (context?.signal?.aborted) {
+        resolve();
+        return;
+      }
+      context?.signal?.addEventListener('abort', () => resolve(), { once: true });
+    });
+    sawAbortedSignal = Boolean(context?.signal?.aborted);
+    return fail(AGENT_ERROR.CANCELLED, '命令已取消');
+  };
+
+  const result = await runAgent(
+    { runId: 'r-signal-context', goal: '跑个长命令' },
+    baseOptions({
+      adapter: fake.adapter,
+      executeTool: executor,
+      signal: controller.signal,
+      onEvent: (event) => {
+        // step 事件在工具执行前发出：此时取消，工具应收到已经 abort 的 signal
+        if (event.type === 'step') controller.abort();
+      },
+    }),
+  );
+
+  assert.equal(result.status, 'cancelled');
+  assert.equal(sawAbortedSignal, true, 'executeTool 的 context.signal 必须是已 abort 的同一信号');
+});
+
 test('adapter 抛 AbortError 视为取消', async () => {
   const controller = new AbortController();
   const abortError = new Error('The operation was aborted');

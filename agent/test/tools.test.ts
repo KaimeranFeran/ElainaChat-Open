@@ -19,6 +19,16 @@ function shellQuote(value: string): string {
   return '"' + value + '"';
 }
 
+function isProcessAlive(pid: number): boolean {
+  if (!pid) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function runGit(cwd: string, args: string[]): { status: number | null; stdout: string; stderr: string } {
   const result = spawnSync('git', args, { cwd, encoding: 'utf8', windowsHide: true });
   return { status: result.status, stdout: String(result.stdout ?? ''), stderr: String(result.stderr ?? '') };
@@ -236,6 +246,80 @@ test('run_command：超时会杀掉整棵进程树', async () => {
   assert.equal(data.exitCode, null);
   assert.ok(elapsed < 8000, '超时后应快速返回，实际耗时 ' + elapsed + 'ms');
   assert.ok(typeof data.logPath === 'string' && data.logPath.length > 0);
+
+  await fs.rm(root, { recursive: true, force: true });
+});
+
+test('run_command：cancel（abort）杀掉整棵进程树并在 2s 内返回', async () => {
+  const root = await makeTempDir('elaina-abort-');
+  const script = path.join(root, 'sleep.js');
+  await fs.writeFile(
+    script,
+    "require('node:fs').writeFileSync('pid.txt', String(process.pid));\nsetTimeout(() => {}, 30000);\n",
+    'utf8',
+  );
+  const controller = new AbortController();
+  const executor = createToolExecutor({ workspace: root, access: 'approval', runId: 'abort-test', logDir: root, signal: controller.signal });
+
+  const pending = executor.execute('run_command', {
+    command: shellQuote(process.execPath) + ' ' + shellQuote(script),
+    timeoutMs: 60000,
+  });
+
+  // 等子进程真正起来并写出 PID（每秒 40 次，最多 5s）
+  const pidFile = path.join(root, 'pid.txt');
+  let pid = 0;
+  for (let i = 0; i < 200; i += 1) {
+    try {
+      pid = Number(await fs.readFile(pidFile, 'utf8'));
+    } catch {
+      pid = 0;
+    }
+    if (pid > 0) break;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  assert.ok(pid > 0, '子进程应已写出 PID');
+  assert.equal(isProcessAlive(pid), true);
+
+  const started = Date.now();
+  controller.abort();
+  const result = await pending;
+  const elapsed = Date.now() - started;
+
+  assert.equal(result.ok, false);
+  assert.equal(result.code, 'CANCELLED');
+  assert.ok(elapsed < 2000, '取消后应在 2s 内返回，实际 ' + elapsed + 'ms');
+
+  // 进程树在 2s 内消失（taskkill /T /F）
+  let alive = true;
+  for (let i = 0; i < 40; i += 1) {
+    alive = isProcessAlive(pid);
+    if (!alive) break;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  assert.equal(alive, false, '取消后子进程应已被杀掉');
+
+  await fs.rm(root, { recursive: true, force: true });
+});
+
+test('run_command：孙进程占着管道（Start-Process）时超时/退出都能收尾，不再永久卡住', async () => {
+  // 回归用例：旧实现等 'close'，但 detached 孙进程继承 stdout/stderr 后父 shell 已退出，
+  // 'close' 永远不来，taskkill 打的是已退出的父 PID —— run_command 永久卡住。
+  const root = await makeTempDir('elaina-nohang-');
+  const executor = createToolExecutor({ workspace: root, access: 'approval', runId: 'nohang-test', logDir: root });
+
+  const started = Date.now();
+  const result = await executor.execute('run_command', {
+    command:
+      "Start-Process -NoNewWindow -WorkingDirectory $env:TEMP -FilePath powershell.exe " +
+      "-ArgumentList '-NoProfile','-NonInteractive','-Command','Start-Sleep -Seconds 8'; Write-Output started",
+    timeoutMs: 800,
+  });
+  const elapsed = Date.now() - started;
+
+  assert.ok(elapsed < 5000, '孙进程占管道时也必须在秒级收尾，实际耗时 ' + elapsed + 'ms');
+  // 父 shell 已退出（exit 0）或超时被强杀，两种结果都可接受；关键是**必须返回**
+  assert.ok(result.code === 'OK' || result.code === 'TOOL_TIMEOUT' || result.code === 'TOOL_FAILED', '应返回结构化结果：' + String(result.code));
 
   await fs.rm(root, { recursive: true, force: true });
 });

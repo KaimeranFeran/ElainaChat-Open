@@ -50,6 +50,7 @@ import {
   type NeedsApproval,
   type RequestApproval,
   type RuntimeEvent,
+  type ToolExecuteContext,
   type ToolExecutor,
 } from './runtime/runtime.ts';
 import type { GitCheckpoint } from './tools/git-checkpoint.ts';
@@ -1666,7 +1667,9 @@ export async function createDefaultRun(
         const executor = created as ExecutorLikeObject;
         if (Array.isArray(executor.specs)) executorSpecs = executor.specs;
         if (typeof executor.execute === 'function') {
-          executeTool = async (call) => executor.execute!(call.name, call.args, { signal: context.signal });
+          // runtime 每次调用都会带 context.signal（cancel/超时同一根来源）；优先用它
+          executeTool = async (call, executeContext) =>
+            executor.execute!(call.name, call.args, { signal: executeContext?.signal ?? context.signal });
         }
         if (typeof executor.riskFor === 'function') {
           executorRisk = (call) => String(executor.riskFor!(call.name, call.args));
@@ -1712,13 +1715,18 @@ export async function createDefaultRun(
     }
   };
 
-  executeTool = async (call: ToolCall): Promise<ToolResult> => {
-    if (executorHas && executorHas(call.name)) return builtinExecute(call);
+  executeTool = async (call: ToolCall, executeContext?: ToolExecuteContext): Promise<ToolResult> => {
+    // 优先用 runtime 传进来的 context.signal（与 cancel/超时同一根来源），兜底用 run 的 signal
+    const signal = executeContext?.signal ?? context.signal;
+    if (executorHas && executorHas(call.name)) {
+      // builtinExecute 的闭包里已带 signal；executeTool 收到新 signal 时重新转发一次
+      return builtinExecute(call, { signal });
+    }
     if (pluginManager && pluginManager.toolRuntime(call.name)) {
       // 禁用插件的工具在这里直接 TOOL_DENIED（不执行、不弹审批）
       return pluginManager.executeTool(call.name, call.args, {
         workspace: merged.workspace,
-        signal: context.signal,
+        signal,
         runCommand: runPluginCommand,
       });
     }
@@ -1728,7 +1736,7 @@ export async function createDefaultRun(
         '工具 ' + call.name + ' 已注册但没有可用的执行通道（插件需要 manifest command 或 handler）。请改用内置工具，或用 finish 说明缺口。',
       );
     }
-    return builtinExecute(call);
+    return builtinExecute(call, { signal });
   };
 
   // git 检查点（设计文档第 7 节）：写操作前 ensureBranch + commitBeforeWrite；
