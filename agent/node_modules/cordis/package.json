@@ -1,0 +1,49 @@
+{
+  "name": "cordis",
+  "description": "Meta-Framework for Modern Applications",
+  "version": "4.0.0-rc.12",
+  "sideEffects": false,
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "bin": "bin.js",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./src/*": "./src/*",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "bin.js"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cordiverse/cordis.git",
+    "directory": "packages/core"
+  },
+  "bugs": {
+    "url": "https://github.com/cordiverse/cordis/issues"
+  },
+  "homepage": "https://github.com/cordiverse/cordis",
+  "author": "Shigma <shigma10826@gmail.com>",
+  "license": "MIT",
+  "peerDependencies": {
+    "@cordisjs/plugin-include": "^1.2.0",
+    "@cordisjs/plugin-loader": "^1.0.0-rc.9"
+  },
+  "peerDependenciesMeta": {
+    "@cordisjs/plugin-include": {
+      "optional": true
+    },
+    "@cordisjs/plugin-loader": {
+      "optional": true
+    }
+  },
+  "dependencies": {
+    "@standard-schema/spec": "^1.1.0",
+    "cosmokit": "^1.8.1"
+  }
+}
