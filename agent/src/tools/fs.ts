@@ -30,15 +30,31 @@ function failed(message: string, extra: Record<string, unknown> = {}): ToolResul
 }
 
 async function resolveForRead(options: FsToolOptions, input: string): Promise<PathResolution> {
-  return resolveUserPath(options.workspace, input, { allowOutside: false });
+  // full 档位：只读也可以越过工作区边界（用户已接受风险，审批不再按路径拦截）；
+  // approval 档位保持拒绝，提示由 paths.ts 给出。
+  return resolveUserPath(options.workspace, input, { allowOutside: options.access === 'full' });
+}
+
+/** 是否是「工作区外」被拒（paths.ts 的专用提示），用于区分设备路径/ADS 等其它拒绝 */
+function isOutsideDenial(resolved: PathResolution): boolean {
+  return !resolved.ok && resolved.code === 'TOOL_DENIED' && resolved.message.includes('路径超出允许的工作区');
 }
 
 async function resolveForWrite(options: FsToolOptions, input: string): Promise<PathResolution> {
   return resolveUserPath(options.workspace, input, { allowOutside: options.access === 'full' });
 }
 
-function outsideHint(): string {
-  return '工作区外的路径需要审批：当前为 approval 档位，无法直接访问。请改用工作区内的路径，或请用户切换为 full 档位。';
+/**
+ * approval 档位下写工作区外：设计契约是「请求审批后放行」，但当前 runtime 审批只到
+ * 整工具粒度（needsApproval(call)/审批结论不携带路径），工具层拿不到「本路径已被放行」
+ * 的结果，因此不能静默当普通错误：返回 needs_user，把限制和出路讲清楚。
+ */
+function outsideWriteHint(): string {
+  return (
+    '当前是 approval 档位，工作区外写入无法按路径放行：审批只能整工具允许，' +
+    '即使用户点了允许，工具层也不会写工作区外。请改用工作区内的路径；' +
+    '确需写工作区外时，请让用户在「设置 → Agent」切换到 full 档位。'
+  );
 }
 
 /* ------------------------------- list_files ------------------------------- */
@@ -142,6 +158,7 @@ export async function listFilesTool(args: Record<string, unknown>, options: FsTo
   return ok(
     {
       path: toDisplayPath(resolved.root, resolved.path),
+      outside: resolved.outside,
       entries: state.entries,
       count: state.entries.length,
       truncated: state.truncated,
@@ -214,6 +231,7 @@ export async function readFileTool(args: Record<string, unknown>, options: FsToo
   return ok(
     {
       path: toDisplayPath(resolved.root, resolved.path),
+      outside: resolved.outside,
       totalLines,
       from,
       to: endLine,
@@ -238,6 +256,7 @@ export async function writeFileTool(args: Record<string, unknown>, options: FsTo
 
   const resolved = await resolveForWrite(options, target);
   if (!resolved.ok) {
+    if (options.access === 'approval' && isOutsideDenial(resolved)) return denied(outsideWriteHint());
     return resolved.code === 'TOOL_DENIED' ? denied(resolved.message) : failed(resolved.message);
   }
 
@@ -473,6 +492,7 @@ export async function applyPatchTool(args: Record<string, unknown>, options: FsT
 
   const resolved = await resolveForWrite(options, target);
   if (!resolved.ok) {
+    if (options.access === 'approval' && isOutsideDenial(resolved)) return denied(outsideWriteHint());
     return resolved.code === 'TOOL_DENIED' ? denied(resolved.message) : failed(resolved.message);
   }
 

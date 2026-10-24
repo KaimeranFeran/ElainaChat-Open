@@ -84,6 +84,70 @@ test('fs：路径穿越、工作区外与符号链接逃逸都被拒绝', async 
   await fs.rm(outside, { recursive: true, force: true });
 });
 
+test('fs：full 档位可读工作区外；approval 档仍拒绝；approval 外写返回 needs_user 说明', async () => {
+  const root = await makeTempDir('elaina-access-ws-');
+  const outside = await makeTempDir('elaina-access-outside-');
+  await fs.writeFile(path.join(outside, 'outside.txt'), 'line1\nline2\n', 'utf8');
+
+  try {
+    const full = createToolExecutor({ workspace: root, access: 'full' });
+
+    // full：工作区外只读放行，并显式标记 outside
+    const read = await full.execute('read_file', { path: path.join(outside, 'outside.txt') });
+    assert.equal(read.ok, true);
+    assert.equal((read.data as { text: string }).text, 'line1\nline2');
+    assert.equal((read.data as { outside: boolean }).outside, true);
+
+    const list = await full.execute('list_files', { path: outside });
+    assert.equal(list.ok, true);
+    assert.equal((list.data as { outside: boolean }).outside, true);
+    const entries = (list.data as { entries: Array<{ path: string; type: string }> }).entries;
+    assert.ok(entries.some((entry) => entry.path.endsWith('outside.txt')));
+
+    // approval：工作区外只读仍拒绝
+    const approval = createToolExecutor({ workspace: root, access: 'approval' });
+    const deniedRead = await approval.execute('read_file', { path: path.join(outside, 'outside.txt') });
+    assert.equal(deniedRead.ok, false);
+    assert.equal(deniedRead.code, 'TOOL_DENIED');
+    assert.ok(String(deniedRead.message).includes('工作区'));
+
+    const deniedList = await approval.execute('list_files', { path: outside });
+    assert.equal(deniedList.ok, false);
+    assert.equal(deniedList.code, 'TOOL_DENIED');
+
+    // approval：工作区外写入不能静默当普通错误 —— needs_user 讲清限制与出路
+    const outsideWrite = await approval.execute('write_file', { path: path.join(outside, 'new.txt'), content: 'x' });
+    assert.equal(outsideWrite.ok, false);
+    assert.equal(outsideWrite.code, 'TOOL_DENIED');
+    assert.equal(outsideWrite.needs_user, true);
+    assert.ok(String(outsideWrite.message).includes('full 档位'));
+    await assert.rejects(fs.access(path.join(outside, 'new.txt')), '被拒绝的写入不能落盘');
+
+    const patch = [
+      '--- a/outside.txt',
+      '+++ b/outside.txt',
+      '@@ -1,2 +1,2 @@',
+      ' line1',
+      '-line2',
+      '+line2b',
+    ].join('\n');
+    const outsidePatch = await approval.execute('apply_patch', { patch, path: path.join(outside, 'outside.txt') });
+    assert.equal(outsidePatch.ok, false);
+    assert.equal(outsidePatch.code, 'TOOL_DENIED');
+    assert.equal(outsidePatch.needs_user, true);
+    assert.ok(String(outsidePatch.message).includes('full 档位'));
+    assert.equal(await fs.readFile(path.join(outside, 'outside.txt'), 'utf8'), 'line1\nline2\n');
+
+    // full：工作区外写入照常（既有契约）
+    const fullWrite = await full.execute('write_file', { path: path.join(outside, 'new.txt'), content: 'ok' });
+    assert.equal(fullWrite.ok, true);
+    assert.equal(await fs.readFile(path.join(outside, 'new.txt'), 'utf8'), 'ok');
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+    await fs.rm(outside, { recursive: true, force: true });
+  }
+});
+
 test('fs：读写、列目录与 apply_patch 往返', async () => {
   const root = await makeTempDir('elaina-fs-');
   const executor = createToolExecutor({ workspace: root, access: 'approval' });
